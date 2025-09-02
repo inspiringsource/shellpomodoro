@@ -134,6 +134,6 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 If you encounter any issues or have questions, please open an issue on the GitHub repository.
 
-## Optimization
+## Development History
 
-This code has been optimized using Grok code.
+This project was initiated using Kiro, which helped establish the initial structure and core functionality of the Pomodoro timer. Later, the codebase was optimized and refined using Grok code to improve performance, code quality, and maintainability.
