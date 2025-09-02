@@ -1,5 +1,9 @@
 # Shellpomodoro
 
+---
+
+[![PyPI version](https://img.shields.io/pypi/v/shellpomodoro.svg)](https://pypi.org/project/shellpomodoro/) [![Python versions](https://img.shields.io/pypi/pyversions/shellpomodoro.svg)](https://pypi.org/project/shellpomodoro/) [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 `shellpomodoro` = Shell + Pomodoro timer. Built for my own use; sharing in case it helps others too.
 
 A cross-platform terminal-based Pomodoro timer CLI application that can be installed via pip and run anywhere. Built with Python's standard library only - no external dependencies required.
@@ -136,4 +140,4 @@ If you encounter any issues or have questions, please open an issue on the GitHu
 
 ## Development History
 
-This project was initiated using Kiro, which helped establish the initial structure and core functionality of the Pomodoro timer. Later, the codebase was optimized and refined using Grok code to improve performance, code quality, and maintainability.
+This project was initiated using Kiro, which helped establish the initial structure and core functionality of the Pomodoro timer (the original `design.md`, `requirements.md`, and `tasks.md` are included in the repo). Later, the codebase was optimized and refined using Grok code to improve performance, code quality, and maintainability.
