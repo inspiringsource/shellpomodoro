@@ -15,24 +15,12 @@ A cross-platform terminal-based Pomodoro timer CLI application that can be insta
 
 ## Installation
 
-### From PyPI (Recommended)
-
-```bash
-pip install shellpomodoro
-```
-
 ### Development Installation
 
 ```bash
 git clone https://github.com/inspiringsource/shellpomodoro.git
 cd shellpomodoro
 pip install -e .
-```
-
-### Alternative: Using pipx (Isolated Installation)
-
-```bash
-pipx install shellpomodoro
 ```
 
 ## Usage
