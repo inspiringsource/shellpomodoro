@@ -17,7 +17,11 @@ A cross-platform terminal-based Pomodoro timer CLI application that can be insta
 
 ## Installation
 
-> Note: PyPI install is coming right after the first release. For now, use a dev install or pipx.
+### From PyPI (Recommended)
+
+```bash
+pip install shellpomodoro
+```
 
 ### Development Installation (from source)
 
