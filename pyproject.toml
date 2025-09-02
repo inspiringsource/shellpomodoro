@@ -1,36 +1,40 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
+requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "shellpomodoro"
-version = "1.0.0"
-description = "A minimalist Pomodoro timer for the command line"
+version = "0.1.0"
+description = "A cross-platform terminal Pomodoro timer (stdlib-only) with keypress pauses and an ASCII reward banner."
 readme = "README.md"
-requires-python = ">=3.8"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "Avi" }]
+keywords = ["pomodoro", "cli", "timer", "productivity", "terminal"]
 classifiers = [
-    "Development Status :: 5 - Production/Stable",
-    "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
-    "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3 :: Only",
     "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
-    "Topic :: Office/Business :: Scheduling",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Environment :: Console",
+    "Intended Audience :: End Users/Desktop",
     "Topic :: Utilities",
 ]
-keywords = ["pomodoro", "timer", "productivity", "cli", "terminal"]
 
 [project.scripts]
 shellpomodoro = "shellpomodoro.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/yourusername/shellpomodoro"
-Repository = "https://github.com/yourusername/shellpomodoro"
-Issues = "https://github.com/yourusername/shellpomodoro/issues"
+Homepage = "https://github.com/inspiringsource/shellpomodoro"
+Repository = "https://github.com/inspiringsource/shellpomodoro"
+Issues = "https://github.com/inspiringsource/shellpomodoro/issues"
+
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-q --timeout=10 -k 'not slow and not interactive'"

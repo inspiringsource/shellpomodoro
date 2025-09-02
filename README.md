@@ -1,5 +1,7 @@
 # Shellpomodoro
 
+`shellpomodoro` = Shell + Pomodoro timer. Built for my own use; sharing in case it helps others too.
+
 A cross-platform terminal-based Pomodoro timer CLI application that can be installed via pip and run anywhere. Built with Python's standard library only - no external dependencies required.
 
 ## Features
@@ -15,12 +17,23 @@ A cross-platform terminal-based Pomodoro timer CLI application that can be insta
 
 ## Installation
 
-### Development Installation
+> Note: PyPI install is coming right after the first release. For now, use a dev install or pipx.
+
+### Development Installation (from source)
 
 ```bash
 git clone https://github.com/inspiringsource/shellpomodoro.git
 cd shellpomodoro
+python3 -m venv .venv
+source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate.ps1
+pip install -U pip
 pip install -e .
+```
+
+Alternative: Using pipx (isolated install)
+
+```bash
+pipx install .
 ```
 
 ## Usage
@@ -88,16 +101,19 @@ Shellpomodoro works seamlessly across different operating systems:
 ## Examples
 
 ### Quick 15-minute session
+
 ```bash
 shellpomodoro --work 15 --break 5 --iterations 1
 ```
 
 ### Extended deep work session
+
 ```bash
 shellpomodoro --work 50 --break 10 --iterations 3
 ```
 
 ### Silent mode (no beeps)
+
 ```bash
 shellpomodoro --beeps 0
 ```
