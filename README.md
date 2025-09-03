@@ -106,6 +106,23 @@ Shellpomodoro works seamlessly across different operating systems:
 - **Unix/Linux/macOS**: Uses `termios` and `tty` for terminal control
 - **Terminal Bell**: Uses standard `\a` character (may require terminal configuration)
 
+### Troubleshooting: No Beep in VS Code
+
+If you don't hear the terminal bell when running in the VS Code integrated terminal, you may need to enable audio cues in your VS Code settings. Add the following to your `settings.json`:
+
+```json
+{
+  "terminal.integrated.enableVisualBell": true,
+  "accessibility.signals.terminalBell": {
+    "sound": "on"
+  },
+  "audioCues.enabled": "on",
+  "audioCues.terminalBell": "on"
+}
+```
+
+This enables the audible bell and ensures `\a` is played as a sound when Shellpomodoro triggers notifications.
+
 ## Examples
 
 ### Quick 15-minute session
