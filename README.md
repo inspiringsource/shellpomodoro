@@ -90,7 +90,7 @@ shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
 ### Session Control
 
 - **Abort Session**: Press `Ctrl+C` at any time to abort the current session
-- **Phase Transitions**: Press any key to advance from work to break or break to work
+- **Phase Transitions**: Press `Ctrl+E` to end the current phase early (WORK → BREAK, BREAK → next WORK)
 - **Real-time Display**: See countdown timer, current phase, and instructions
 
 ## Requirements
