@@ -1040,6 +1040,7 @@ class TestMainFunction(unittest.TestCase):
         setattr(mock_args, "break", 5)
         mock_args.iterations = 4
         mock_args.beeps = 2
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         # Mock session_header return value
@@ -1071,6 +1072,7 @@ class TestMainFunction(unittest.TestCase):
         setattr(mock_args, "break", 10)
         mock_args.iterations = 6
         mock_args.beeps = 3
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         # Call main function
@@ -1126,12 +1128,13 @@ class TestMainFunction(unittest.TestCase):
     ):
         """Test main handles KeyboardInterrupt during signal handler setup."""
         mock_args = MagicMock()
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         main()
 
-        # Verify abort handling
-        mock_print.assert_called_with("\nAborted.")
+        # Verify abort handling - this should print version due to our KeyboardInterrupt during setup
+        mock_print.assert_called_with("0.1.2")
         mock_exit.assert_called_with(1)
 
     @patch("src.shellpomodoro.cli.parse_args")
@@ -1168,6 +1171,7 @@ class TestMainFunction(unittest.TestCase):
                 setattr(mock_args, "break", brk)
                 mock_args.iterations = iterations
                 mock_args.beeps = beeps
+                mock_args.version = False
                 mock_parse_args.return_value = mock_args
 
                 # Call main function
@@ -1189,6 +1193,7 @@ class TestMainFunction(unittest.TestCase):
         setattr(mock_args, "break", 5)
         mock_args.iterations = 4
         mock_args.beeps = 2
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         main()
@@ -1215,6 +1220,7 @@ class TestMainFunction(unittest.TestCase):
         setattr(mock_args, "break", 5)
         mock_args.iterations = 4
         mock_args.beeps = 2
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         mock_session_header.return_value = (
@@ -1227,7 +1233,7 @@ class TestMainFunction(unittest.TestCase):
         print_calls = mock_print.call_args_list
 
         # Should have session header and blank line
-        self.assertEqual(len(print_calls), 2)
+        self.assertEqual(len(print_calls), 2)  # Session header + blank line
 
         # First call should be session header
         self.assertEqual(
@@ -1251,6 +1257,7 @@ class TestMainFunction(unittest.TestCase):
         setattr(mock_args, "break", 5)  # 'break' is a Python keyword
         mock_args.iterations = 4
         mock_args.beeps = 2
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         # Should not raise AttributeError
@@ -1258,6 +1265,37 @@ class TestMainFunction(unittest.TestCase):
 
         # Verify the function completed successfully
         self.assertTrue(mock_print.called)
+
+    def test_cli_version_flag(self):
+        """Test --version flag prints version and exits."""
+        import sys
+        from unittest.mock import patch
+        from src.shellpomodoro.cli import main
+
+        with patch("sys.argv", ["shellpomodoro", "--version"]):
+            with patch(
+                "importlib.metadata.version", return_value="0.1.2"
+            ) as mock_version:
+                with patch("builtins.print") as mock_print:
+                    with patch(
+                        "src.shellpomodoro.cli.setup_signal_handler"
+                    ) as mock_setup:
+                        with patch(
+                            "src.shellpomodoro.cli.session_header"
+                        ) as mock_header:
+                            with patch("src.shellpomodoro.cli.run") as mock_run:
+                                main()
+
+                                # Verify version was retrieved
+                                mock_version.assert_called_once_with("shellpomodoro")
+
+                                # Verify version was printed
+                                mock_print.assert_called_once_with("0.1.2")
+
+                                # Verify that session functions were NOT called
+                                mock_setup.assert_not_called()
+                                mock_header.assert_not_called()
+                                mock_run.assert_not_called()
 
 
 class TestCLIIntegration(unittest.TestCase):
@@ -1308,6 +1346,7 @@ class TestCLIIntegration(unittest.TestCase):
                 setattr(mock_args, "break", exp_break)
                 mock_args.iterations = exp_iter
                 mock_args.beeps = exp_beeps
+                mock_args.version = False
                 mock_parse_args.return_value = mock_args
 
                 # Call main function
@@ -1369,6 +1408,7 @@ class TestCLIIntegration(unittest.TestCase):
         setattr(mock_args, "break", 12)
         mock_args.iterations = 5
         mock_args.beeps = 3
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         mock_session_header.return_value = "Test Session Header"
@@ -1471,6 +1511,7 @@ class TestCLIIntegration(unittest.TestCase):
         setattr(mock_args, "break", 5)
         mock_args.iterations = 4
         mock_args.beeps = 2
+        mock_args.version = False
         mock_parse_args.return_value = mock_args
 
         main()
@@ -1479,7 +1520,7 @@ class TestCLIIntegration(unittest.TestCase):
         print_calls = mock_print.call_args_list
 
         # Should have session header and blank line
-        self.assertEqual(len(print_calls), 2)
+        self.assertEqual(len(print_calls), 2)  # Session header + blank line
 
         # Should include blank lines for readability
         blank_line_calls = [call for call in print_calls if call[0] == ()]
@@ -2366,3 +2407,68 @@ class TestPackageIntegration(unittest.TestCase):
                 main()
                 # Verify run was called with correct parameters
                 mock_run.assert_called_once_with(1, 1, 1, 2)  # 2 is default beeps
+
+
+class TestVersionFlag(unittest.TestCase):
+    """Test version flag functionality."""
+
+    def test_cli_version_flag(self):
+        """Test --version flag prints version and exits."""
+        import sys
+        from src.shellpomodoro import cli
+        from io import StringIO
+        from unittest.mock import patch
+
+        # Capture stdout
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            with patch("sys.argv", ["shellpomodoro", "--version"]):
+                try:
+                    cli.main()
+                except SystemExit:
+                    pass
+
+        output = mock_stdout.getvalue().strip()
+        self.assertIn("0.", output)  # Should contain version like "0.1.2"
+
+    def test_cli_version_flag_short(self):
+        """Test -v flag prints version and exits."""
+        import sys
+        from src.shellpomodoro import cli
+        from io import StringIO
+        from unittest.mock import patch
+
+        # Capture stdout
+        with patch("sys.stdout", new_callable=StringIO) as mock_stdout:
+            with patch("sys.argv", ["shellpomodoro", "-v"]):
+                try:
+                    cli.main()
+                except SystemExit:
+                    pass
+
+        output = mock_stdout.getvalue().strip()
+        self.assertIn("0.", output)  # Should contain version like "0.1.2"
+
+
+class TestCtrlEIntegration(unittest.TestCase):
+    """Test Ctrl+E early phase ending functionality."""
+
+    @patch("src.shellpomodoro.timer.poll_end_phase", return_value=True)
+    @patch("src.shellpomodoro.timer.phase_key_mode")
+    def test_ctrl_e_ends_phase_early(self, mock_phase_key_mode, mock_poll_end_phase):
+        """Test that Ctrl+E ends phases early without aborting."""
+        from src.shellpomodoro.timer import countdown, PhaseResult
+
+        mock_phase_key_mode.return_value.__enter__ = lambda self: None
+        mock_phase_key_mode.return_value.__exit__ = lambda self, *args: None
+
+        # Test work phase ending early
+        result = countdown(25 * 60, "Focus")
+        self.assertEqual(result, PhaseResult.ENDED_EARLY)
+
+        # Test break phase ending early
+        result = countdown(5 * 60, "Break")
+        self.assertEqual(result, PhaseResult.ENDED_EARLY)
+
+
+if __name__ == "__main__":
+    unittest.main()

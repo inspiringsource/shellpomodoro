@@ -76,6 +76,7 @@ shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
 - `--break N`: Set break period duration in minutes (default: 5)
 - `--iterations N`: Set number of Pomodoro cycles (default: 4)
 - `--beeps N`: Set number of notification beeps (default: 2)
+- `--version`, `-v`: Show version and exit
 - `--help`: Show help message and exit
 
 ## How It Works
@@ -89,6 +90,7 @@ shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
 
 ### Session Control
 
+- **Check Version**: Run `shellpomodoro --version` or `shellpomodoro -v`
 - **Abort Session**: Press `Ctrl+C` at any time to abort the current session
 - **Phase Transitions**: Press `Ctrl+E` to end the current phase early (WORK → BREAK, BREAK → next WORK)
 - **Real-time Display**: See countdown timer, current phase, and instructions
