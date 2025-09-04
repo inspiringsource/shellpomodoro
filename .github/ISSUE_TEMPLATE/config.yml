@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability report (private)
+    url: https://github.com/inspiringsource/shellpomodoro/security/advisories/new
+    about: Please use this to report security issues privately.
+  - name: Questions / support
+    url: https://github.com/inspiringsource/shellpomodoro/discussions
+    about: Ask questions or share ideas in Discussions.

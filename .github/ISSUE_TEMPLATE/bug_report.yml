@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a problem with shellpomodoro (non-security)
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: "⚠️ For security issues, please **do not** file an issue. Use private reporting: https://github.com/inspiringsource/shellpomodoro/security/advisories/new"
+  - type: textarea
+    id: desc
+    attributes:
+      label: What happened?
+      description: Describe the bug and expected behavior.
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: shellpomodoro version
+      placeholder: 0.1.2
+  - type: input
+    id: os
+    attributes:
+      label: OS / Terminal
+      placeholder: macOS 14 / VS Code Terminal, Windows 10 / PowerShell...
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      placeholder: 1) ... 2) ... 3) ...
+  - type: textarea
+    id: logs
+    attributes:
+      label: Output / logs
+      render: shell
