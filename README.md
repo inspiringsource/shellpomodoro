@@ -111,6 +111,17 @@ shellpomodoro --display dots --dot-interval 60   # one dot per minute
 - `--dot-interval` (seconds) is optional and only used with dots.
   If omitted, shellpomodoro uses a sensible default (one dot per minute for long phases; ~10 dots for short ones).
 
+### Screenshots
+
+**Default Timer (timer-back)**
+![Shellpomodoro Default](screenshots/shellpomodoro-default.png)
+
+**Progress Bar**
+![Shellpomodoro Bar](screenshots/shellpomodoro-bar.png)
+
+**Dots Mode**
+![Shellpomodoro Dots](screenshots/shellpomodoro-dots.png)
+
 ## How It Works
 
 1. **Work Phase**: Focus on your task while the timer counts down
