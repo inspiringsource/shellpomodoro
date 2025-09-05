@@ -4,6 +4,12 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project adheres to Semantic Versioning.
 
+## [0.1.4] - 2025-09-05
+
+### Fixed
+- `--display bar` and `--display dots` now update in-place on a single line; a newline is printed only at phase end.
+- `timer-back` and `timer-forward` unchanged.
+
 ## [0.1.3] - 2025-09-05
 
 ### Added

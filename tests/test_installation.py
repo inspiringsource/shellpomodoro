@@ -71,7 +71,7 @@ class TestInstallation(TestCase):
             text=True,
         )
         self.assertEqual(result.returncode, 0)
-        self.assertIn("0.1.3", result.stdout)
+        self.assertIn("0.1.4", result.stdout)
 
     def test_package_structure_correct(self):
         """Test that package structure follows src-layout correctly."""

@@ -46,7 +46,7 @@ source .venv/bin/activate
 # Windows CMD
 .\.venv\Scripts\activate.bat
 pip install -U pip
-pip install -e .
+pip install -U pip
 ```
 
 Alternative: Using pipx (isolated install)

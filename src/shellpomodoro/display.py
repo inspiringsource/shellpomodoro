@@ -31,6 +31,8 @@ class Renderer:
 
 # ---- Timer back/forward ----
 class TimerBackRenderer(Renderer):
+    single_line = False
+
     def __init__(self):
         self._label = ""
         self._total = 0
@@ -52,6 +54,8 @@ class TimerBackRenderer(Renderer):
 
 
 class TimerFwdRenderer(Renderer):
+    single_line = False
+
     def __init__(self):
         self._label = ""
         self._total = 0
@@ -73,6 +77,8 @@ class TimerFwdRenderer(Renderer):
 
 # ---- Progress bar ----
 class BarRenderer(Renderer):
+    single_line = True
+
     def __init__(self):
         self._label = ""
         self._total = 1
@@ -86,7 +92,9 @@ class BarRenderer(Renderer):
         bar_w = max(10, min(40, cols - 30))
         ratio = min(1.0, max(0.0, (elapsed_s / self._total)))
         filled = int(ratio * bar_w)
-        return f"[{self._label}] [{'█' * filled}{'░' * (bar_w - filled)}] {int(ratio * 100):3d}%"
+        bar = "█" * filled + "░" * (bar_w - filled)
+        percent = int(ratio * 100)
+        return f"[{self._label}] [{bar}] {percent:>3}%"
 
     def finalize_phase(self, ended_early):
         pass
@@ -97,6 +105,8 @@ class BarRenderer(Renderer):
 
 # ---- Dots (test-runner style) ----
 class DotsRenderer(Renderer):
+    single_line = True
+
     def __init__(self, dot_interval_s: Optional[int]):
         self._label = ""
         self._total = 0
