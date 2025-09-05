@@ -27,11 +27,11 @@ A cross-platform terminal-based Pomodoro timer CLI application that can be insta
 pip install shellpomodoro
 ```
 
-Or, using UV instead of pip:
+Or using `uv` (even faster):
 
 ```bash
 uv pip install shellpomodoro
-```
+````
 
 ### Development Installation (from source)
 
