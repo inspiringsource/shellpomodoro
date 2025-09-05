@@ -39,7 +39,12 @@ uv pip install shellpomodoro
 git clone https://github.com/inspiringsource/shellpomodoro.git
 cd shellpomodoro
 python3 -m venv .venv
-source .venv/bin/activate  # Windows: .\.venv\Scripts\Activate.ps1
+# macOS/Linux
+source .venv/bin/activate
+# Windows PowerShell
+.\.venv\Scripts\Activate.ps1
+# Windows CMD
+.\.venv\Scripts\activate.bat
 pip install -U pip
 pip install -e .
 ```
@@ -84,6 +89,27 @@ shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
 - `--beeps N`: Set number of notification beeps (default: 2)
 - `--version`, `-v`: Show version and exit
 - `--help`: Show help message and exit
+
+### Display modes
+
+By default, shellpomodoro shows a countdown timer. You can pick other displays:
+
+```bash
+# default behavior (countdown)
+shellpomodoro --display timer-back
+
+# count up from 00:00
+shellpomodoro --display timer-forward
+
+# progress bar
+shellpomodoro --display bar
+
+# test-runner style dots
+shellpomodoro --display dots --dot-interval 60   # one dot per minute
+```
+
+- `--dot-interval` (seconds) is optional and only used with dots.
+  If omitted, shellpomodoro uses a sensible default (one dot per minute for long phases; ~10 dots for short ones).
 
 ## How It Works
 

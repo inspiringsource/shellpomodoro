@@ -8,9 +8,11 @@ import platform
 import signal
 import argparse
 from contextlib import contextmanager
-from typing import List
+from typing import List, Optional
 import importlib.metadata
 from .timer import countdown, PhaseResult
+import os
+from .display import Mode, make_renderer
 
 
 # ASCII art for completion message
@@ -278,7 +280,11 @@ Examples:
   shellpomodoro                    # Use default settings (25min work, 5min break, 4 iterations)
   shellpomodoro --work 30 --break 10  # Custom work and break durations
   shellpomodoro --iterations 6     # Run 6 Pomodoro cycles
-  shellpomodoro --beeps 3          # Play 3 beeps at phase transitions
+    shellpomodoro --beeps 3          # Play 3 beeps at phase transitions
+    shellpomodoro --display dots --dot-interval 60  # Dots mode, one dot per minute
+
+Display modes (--display): timer-back (default), timer-forward, bar, dots
+Note: --dot-interval applies only to --display dots
         """,
     )
 
@@ -318,6 +324,22 @@ Examples:
         "-v", "--version", action="store_true", help="Show version and exit"
     )
 
+    parser.add_argument(
+        "--display",
+        type=str,
+        choices=[m.value for m in Mode],
+        default=Mode.TIMER_BACK.value,
+        help="Display mode: timer-back, timer-forward, bar, dots (default: timer-back)",
+    )
+
+    parser.add_argument(
+        "--dot-interval",
+        type=int,
+        default=None,
+        metavar="SECS",
+        help="Dot update interval in seconds (only for --display dots)",
+    )
+
     # Parse arguments
     if argv is None:
         argv = sys.argv[1:]
@@ -350,10 +372,26 @@ Examples:
     if args.beeps > 10:
         parser.error("Number of beeps cannot exceed 10")
 
+    # dot-interval validation (when provided)
+    if args.dot_interval is not None and args.dot_interval <= 0:
+        parser.error("--dot-interval must be a positive integer")
+
     return args
 
 
-def run(work: int, brk: int, iters: int, beeps: int) -> None:
+def _is_ci_mode() -> bool:
+    # CI/non-interactive if env var set or stdin not a TTY
+    return os.getenv("SHELLPOMODORO_CI") == "1" or not sys.stdin.isatty()
+
+
+def run(
+    work: int,
+    brk: int,
+    iters: int,
+    beeps: int,
+    display: str = Mode.TIMER_BACK.value,
+    dot_interval: Optional[int] = None,
+) -> None:
     """
     Execute complete Pomodoro session with specified parameters.
 
@@ -371,24 +409,34 @@ def run(work: int, brk: int, iters: int, beeps: int) -> None:
         work_seconds = work * 60
         break_seconds = brk * 60
 
+        # Build renderer
+        mode = Mode(display)
+        renderer = make_renderer(mode, dot_interval)
+
         # Execute each Pomodoro iteration
         for iteration in range(1, iters + 1):
             # Work phase
             work_label = iteration_progress(iteration, iters, "Focus")
-            work_result = countdown(work_seconds, work_label)
+            work_result = countdown(work_seconds, work_label, renderer)
 
             # Play notification beeps after work phase
-            beep(beeps)
+            if not _is_ci_mode():
+                beep(beeps)
 
             # Check if this is the final iteration
             if iteration == iters:
                 # Final iteration - no break phase, show completion
                 print()
                 print(banner())
+                # Print renderer summary if available
+                summary = getattr(renderer, "summary", lambda: "")()
+                if summary:
+                    print()
+                    print(summary)
                 break
             else:
                 # Wait for keypress before break (except final iteration)
-                if work_result == PhaseResult.ENDED_EARLY:
+                if work_result == PhaseResult.ENDED_EARLY or _is_ci_mode():
                     # Skip the keypress wait if work was ended early
                     pass
                 else:
@@ -396,14 +444,18 @@ def run(work: int, brk: int, iters: int, beeps: int) -> None:
 
                 # Break phase
                 break_label = iteration_progress(iteration, iters, "Break")
-                break_result = countdown(break_seconds, break_label)
+                # Separate phases visually for DOTS
+                if mode == Mode.DOTS:
+                    print("\n│")
+                break_result = countdown(break_seconds, break_label, renderer)
 
                 # Play notification beeps after break phase
-                beep(beeps)
+                if not _is_ci_mode():
+                    beep(beeps)
 
                 # Wait for keypress before next work phase (except after final break)
                 if iteration < iters:
-                    if break_result == PhaseResult.ENDED_EARLY:
+                    if break_result == PhaseResult.ENDED_EARLY or _is_ci_mode():
                         # Skip the keypress wait if break was ended early
                         pass
                     else:
@@ -441,7 +493,14 @@ def main() -> None:
         print()  # Add blank line for readability
 
         # Execute Pomodoro session
-        run(args.work, getattr(args, "break"), args.iterations, args.beeps)
+        run(
+            args.work,
+            getattr(args, "break"),
+            args.iterations,
+            args.beeps,
+            getattr(args, "display"),
+            getattr(args, "dot_interval"),
+        )
 
     except KeyboardInterrupt:
         # Handle Ctrl+C gracefully

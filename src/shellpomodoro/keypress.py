@@ -53,18 +53,38 @@ else:
 def phase_key_mode():
     """
     Enable per-key reads while a phase runs; restore terminal on exit.
-    On Windows this is a no-op; on Unix we enter cbreak mode.
+    On Windows this is a no-op; on Unix we enter cbreak mode when possible.
+    In non-TTY / redirected stdin, gracefully no-op.
     """
     if IS_WIN:
         yield
-    else:
-        try:
-            fd = sys.stdin.fileno()
-            with _cbreak(fd):
-                yield
-        except (OSError, UnsupportedOperation):
-            # stdin is not a TTY or redirected (e.g., in tests)
+        return
+    try:
+        # stdin must be a TTY and expose fileno()
+        fileno = sys.stdin.fileno()
+        # If not a real TTY, just no-op
+        if not sys.stdin.isatty():
             yield
+            return
+    except Exception:
+        # No fileno or other issue: no-op
+        yield
+        return
+
+    if not termios or not tty:
+        yield
+        return
+
+    try:
+        old = termios.tcgetattr(fileno)
+        try:
+            tty.setcbreak(fileno)
+            yield
+        finally:
+            termios.tcsetattr(fileno, termios.TCSADRAIN, old)
+    except Exception:
+        # Any issue setting terminal mode: no-op
+        yield
 
 
 def poll_end_phase() -> bool:

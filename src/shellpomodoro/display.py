@@ -1,0 +1,177 @@
+from __future__ import annotations
+
+from enum import Enum
+from dataclasses import dataclass
+import time
+import shutil
+from typing import List, Optional
+
+
+class Mode(str, Enum):
+    TIMER_BACK = "timer-back"
+    TIMER_FWD = "timer-forward"
+    BAR = "bar"
+    DOTS = "dots"
+
+
+@dataclass
+class PhaseRec:
+    kind: str  # "WORK" or "BREAK"
+    total_s: int
+    ended_early: bool
+    slots: str  # for dots (e.g., "••E") else ""
+
+
+class Renderer:
+    def start_phase(self, kind: str, total_s: int) -> None: ...
+    def update(self, elapsed_s: int) -> str: ...  # return one-line status for top line
+    def finalize_phase(self, ended_early: bool) -> None: ...
+    def summary(self) -> str: ...  # multi-line string at session end
+
+
+# ---- Timer back/forward ----
+class TimerBackRenderer(Renderer):
+    def __init__(self):
+        self._label = ""
+        self._total = 0
+
+    def start_phase(self, kind, total_s):
+        self._label = kind
+        self._total = total_s
+
+    def update(self, elapsed_s):
+        left = max(0, int(self._total - elapsed_s))
+        m, s = divmod(left, 60)
+        return f"[{self._label}] ⏳ {m:02d}:{s:02d}"
+
+    def finalize_phase(self, ended_early):
+        pass
+
+    def summary(self):
+        return ""
+
+
+class TimerFwdRenderer(Renderer):
+    def __init__(self):
+        self._label = ""
+        self._total = 0
+
+    def start_phase(self, kind, total_s):
+        self._label = kind
+        self._total = total_s
+
+    def update(self, elapsed_s):
+        m, s = divmod(max(0, int(elapsed_s)), 60)
+        return f"[{self._label}] ⏳ {m:02d}:{s:02d}"
+
+    def finalize_phase(self, ended_early):
+        pass
+
+    def summary(self):
+        return ""
+
+
+# ---- Progress bar ----
+class BarRenderer(Renderer):
+    def __init__(self):
+        self._label = ""
+        self._total = 1
+
+    def start_phase(self, kind, total_s):
+        self._label = kind
+        self._total = max(1, total_s)
+
+    def update(self, elapsed_s):
+        cols = shutil.get_terminal_size((80, 24)).columns
+        bar_w = max(10, min(40, cols - 30))
+        ratio = min(1.0, max(0.0, (elapsed_s / self._total)))
+        filled = int(ratio * bar_w)
+        return f"[{self._label}] [{'█' * filled}{'░' * (bar_w - filled)}] {int(ratio * 100):3d}%"
+
+    def finalize_phase(self, ended_early):
+        pass
+
+    def summary(self):
+        return ""
+
+
+# ---- Dots (test-runner style) ----
+class DotsRenderer(Renderer):
+    def __init__(self, dot_interval_s: Optional[int]):
+        self._label = ""
+        self._total = 0
+        self._interval = dot_interval_s
+        self._last_toggle = 0.0
+        self._slots = []  # type: List[str]
+        self._blink = False
+        self.history = []  # type: List[PhaseRec]
+
+    def start_phase(self, kind, total_s):
+        self._label = kind
+        self._total = max(1, total_s)
+        if not self._interval:
+            # Simple heuristic: minute dots for long, ~10 dots for short phases
+            if self._total >= 60:
+                self._interval = 60
+            else:
+                self._interval = max(1, self._total // 10)
+        n_slots = max(1, self._total // self._interval)
+        # Cap by terminal width to avoid wrapping
+        cols = shutil.get_terminal_size((80, 24)).columns
+        max_slots = max(10, cols - 20)
+        if n_slots > max_slots:
+            n_slots = max_slots
+            self._interval = max(1, self._total // n_slots)
+        self._slots = [" "] * n_slots
+        self._last_toggle = time.time()
+
+    def update(self, elapsed_s):
+        # finalize completed slots
+        n = min(len(self._slots), max(0, int(elapsed_s // self._interval)))
+        for i in range(n):
+            self._slots[i] = "•"
+        # blinking current slot
+        if n < len(self._slots):
+            now = time.time()
+            if now - self._last_toggle >= 0.5:
+                self._blink = not self._blink
+                self._last_toggle = now
+            self._slots[n] = "•" if self._blink else "·"
+        visual = "".join(self._slots)
+        return f"[{self._label}] {visual}"
+
+    def finalize_phase(self, ended_early: bool):
+        # mark current slot if ended early
+        if ended_early:
+            for i, c in enumerate(self._slots):
+                if c in {"·", "•", " "}:
+                    self._slots[i] = "E"
+                    break
+        rec = PhaseRec(self._label, self._total, ended_early, "".join(self._slots))
+        self.history.append(rec)
+
+    def summary(self):
+        if not self.history:
+            return ""
+        lines: List[str] = []
+        for idx, (work, brk) in enumerate(
+            zip(self.history[::2], self.history[1::2]), start=1
+        ):
+            w = f"WORK: {work.slots}"
+            b = f"BREAK: {brk.slots}"
+            lines.append(f"Iter {idx:<2} {w:<20} │ {b}")
+        if len(self.history) % 2 == 1:
+            work = self.history[-1]
+            lines.append(f"Iter {len(self.history) // 2 + 1:<2} WORK: {work.slots}")
+        lines.append("\nLegend: • done, · blinking, E ended early, │ phase separation")
+        return "\n".join(lines)
+
+
+def make_renderer(mode: Mode, dot_interval_s: Optional[int]) -> Renderer:
+    if mode == Mode.TIMER_FWD:
+        return TimerFwdRenderer()
+    if mode == Mode.BAR:
+        return BarRenderer()
+    if mode == Mode.DOTS:
+        return DotsRenderer(dot_interval_s)
+    return TimerBackRenderer()
