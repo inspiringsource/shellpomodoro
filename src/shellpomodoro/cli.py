@@ -10,39 +10,53 @@ def _read_key_windows(prompt: str) -> None:
     """Windows key reading implementation."""
     try:
         import msvcrt
-        print(f"{prompt} ", end="", flush=True)
+        print(f"{prompt}", end="", flush=True)
         msvcrt.getch()
+        print()  # Newline after keypress
     except ImportError:
-        print(f"{prompt} [auto-continue: msvcrt not available]")
+        input(f"{prompt}")
 
 def _read_key_unix(prompt: str) -> None:
     """Unix key reading implementation."""
-    import termios
-    import tty
-    print(f"{prompt} ", end="", flush=True)
-    fd = sys.stdin.fileno()
-    old_settings = termios.tcgetattr(fd)
     try:
-        tty.setraw(fd)
-        sys.stdin.read(1)
-    finally:
-        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-def _raw_terminal():
-    """Context manager for safe terminal state management on Unix systems."""
-    import contextlib
-    import termios
-    import tty
-    
-    @contextlib.contextmanager
-    def _raw_context():
+        import termios
+        import tty
+        if not termios or not tty:
+            input(f"{prompt}")
+            return
+        print(f"{prompt}", end="", flush=True)
         fd = sys.stdin.fileno()
         old_settings = termios.tcgetattr(fd)
         try:
             tty.setraw(fd)
-            yield
+            sys.stdin.read(1)
         finally:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        print()  # Newline after keypress
+    except (ImportError, OSError):
+        input(f"{prompt}")
+
+def _raw_terminal():
+    """Context manager for safe terminal state management on Unix systems."""
+    import contextlib
+    
+    @contextlib.contextmanager
+    def _raw_context():
+        try:
+            import termios
+            import tty
+            if not termios or not tty:
+                yield
+                return
+            fd = sys.stdin.fileno()
+            old_settings = termios.tcgetattr(fd)
+            try:
+                tty.setraw(fd)
+                yield
+            finally:
+                termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        except (ImportError, OSError):
+            yield
     
     return _raw_context()
 
@@ -64,8 +78,12 @@ def read_key(prompt: str) -> None:
     else:
         _read_key_unix(prompt)
 
-def mmss(seconds: int) -> str:
+def mmss(seconds) -> str:
     """Convert seconds to MM:SS format."""
+    try:
+        seconds = int(seconds)
+    except (ValueError, TypeError):
+        seconds = 0
     if seconds < 0:
         seconds = 0
     minutes = seconds // 60
@@ -74,8 +92,7 @@ def mmss(seconds: int) -> str:
 
 def _signal_handler(signum, frame):
     """Signal handler for graceful interruption."""
-    print("\nInterrupted by signal")
-    sys.exit(1)
+    raise KeyboardInterrupt()
 
 def setup_signal_handler():
     """Set up signal handler for graceful interruption."""
@@ -411,7 +428,6 @@ Note: --dot-interval applies only to --display dots
 
     parser.add_argument(
         "--break",
-        dest="break_",
         type=int,
         default=5,
         metavar="MINUTES",
@@ -468,7 +484,7 @@ Note: --dot-interval applies only to --display dots
     if args.work <= 0:
         parser.error("Work duration must be a positive integer")
 
-    if args.break_ <= 0:
+    if getattr(args, "break") <= 0:
         parser.error("Break duration must be a positive integer")
 
     if args.iterations <= 0:
@@ -481,7 +497,7 @@ Note: --dot-interval applies only to --display dots
     if args.work > 180:  # 3 hours
         parser.error("Work duration cannot exceed 180 minutes")
 
-    if args.break_ > 60:  # 1 hour
+    if getattr(args, "break") > 60:  # 1 hour
         parser.error("Break duration cannot exceed 60 minutes")
 
     if args.iterations > 20:
@@ -610,14 +626,14 @@ def main() -> None:
         setup_signal_handler()
 
         # Display session configuration
-        header = session_header(args.work, args.break_, args.iterations)
+        header = session_header(args.work, getattr(args, "break"), args.iterations)
         print(header)
         print()  # Add blank line for readability
 
         # Execute Pomodoro session
         run(
             args.work,
-            args.break_,
+            getattr(args, "break"),
             args.iterations,
             args.beeps,
             getattr(args, "display"),
