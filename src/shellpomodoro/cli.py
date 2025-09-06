@@ -1,6 +1,87 @@
 import os
 import sys
 
+def _detect_platform() -> str:
+    """Detect the current platform (windows, unix)."""
+    import platform
+    return "windows" if platform.system().lower().startswith("win") else "unix"
+
+def _read_key_windows(prompt: str) -> None:
+    """Windows key reading implementation."""
+    try:
+        import msvcrt
+        print(f"{prompt} ", end="", flush=True)
+        msvcrt.getch()
+    except ImportError:
+        print(f"{prompt} [auto-continue: msvcrt not available]")
+
+def _read_key_unix(prompt: str) -> None:
+    """Unix key reading implementation."""
+    import termios
+    import tty
+    print(f"{prompt} ", end="", flush=True)
+    fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(fd)
+    try:
+        tty.setraw(fd)
+        sys.stdin.read(1)
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+
+def _raw_terminal():
+    """Context manager for safe terminal state management on Unix systems."""
+    import contextlib
+    import termios
+    import tty
+    
+    @contextlib.contextmanager
+    def _raw_context():
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            yield
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+    
+    return _raw_context()
+
+def read_key(prompt: str) -> None:
+    """Cross-platform key reading with non-interactive fallback."""
+    if os.getenv("SHELLPOMODORO_NONINTERACTIVE") == "1":
+        print(f"{prompt} [auto-continue: non-interactive]")
+        return
+
+    # Safety guard: prevent blocking in non-TTY environments
+    if not sys.stdin.isatty():
+        print(f"{prompt} [auto-continue: non-TTY]")
+        return
+
+    current_platform = _detect_platform()
+
+    if current_platform == "windows":
+        _read_key_windows(prompt)
+    else:
+        _read_key_unix(prompt)
+
+def mmss(seconds: int) -> str:
+    """Convert seconds to MM:SS format."""
+    if seconds < 0:
+        seconds = 0
+    minutes = seconds // 60
+    seconds = seconds % 60
+    return f"{minutes:02d}:{seconds:02d}"
+
+def _signal_handler(signum, frame):
+    """Signal handler for graceful interruption."""
+    print("\nInterrupted by signal")
+    sys.exit(1)
+
+def setup_signal_handler():
+    """Set up signal handler for graceful interruption."""
+    import signal
+    signal.signal(signal.SIGINT, _signal_handler)
+
 def _supports_ansi() -> bool:
     """Return True if stdout likely supports ANSI control sequences."""
     try:
@@ -39,19 +120,36 @@ GOOD_JOB = """
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝  ╚════╝  ╚═════╝ ╚═════╝ ╚═╝
 """
 
-    """
-    Connect to the session daemon and render the UI in the terminal.
 
-    Rules:
-    - Print a header once per phase (e.g., "[1/4] Focus").
-    - Print a legend once per phase on the line below the status.
-    - Single-line displays (timer-back/forward/bar/dots) repaint status in place:
-      * ANSI mode: "\x1b[2K\r" + status, flush
-      * Fallback: print(status) only if it changed (dedup)
-    - Ctrl+O (TOGGLE_HIDE) detaches immediately and prints "[detached] Viewer exited".
-    - Ctrl+E ends the phase.
-    - Ctrl+C aborts the session (sends ABORT).
-    - Accept both legacy keys (left/elapsed/total) and new keys (remaining_s/elapsed_s/duration_s).
+
+
+
+def beep(times: int = 1, interval: float = 0.2) -> None:
+    """
+    Play terminal bell notifications with configurable count and spacing.
+
+    Args:
+        times: Number of beeps to play (default: 1)
+        interval: Time interval between beeps in seconds (default: 0.2)
+    """
+    for i in range(times):
+        # Print terminal bell character
+        print("\a", end="", flush=True)
+
+        # Add interval between beeps (except after the last beep)
+        if i < times - 1:
+            time.sleep(interval)
+
+def attach_ui(info: dict) -> None:
+    """
+    Connect to daemon and render UI.
+
+    - Header once per phase (e.g., "[1/4] Focus")
+    - Status repaints in place (ANSI) or prints-on-change (fallback)
+    - Legend once per phase below status
+    - Ctrl+O detaches → "[detached] Viewer exited"
+    - Ctrl+E end phase; Ctrl+C abort session
+    - Accept both (remaining_s/elapsed_s/duration_s) and (left/elapsed/total)
     """
     import time
     from .ipc import _connect, hello, status, end_phase, abort
@@ -73,53 +171,44 @@ GOOD_JOB = """
         return
 
     try:
-        renderer = make_renderer(info)  # existing factory
+        renderer = make_renderer(info)  # keep existing factory
     except Exception as e:
         print(f"Unable to create UI renderer: {e}", flush=True)
         return
 
-    # Per-phase dedup state
     last_phase_id = None
     last_key = None
     last_status_line = None
     ansi = _supports_ansi()
 
     def _mmss(s):
-        if s is None:
-            s = 0
         try:
-            s = int(s)
+            s = 0 if s is None else max(0, int(s))
         except Exception:
             s = 0
-        if s < 0:
-            s = 0
-        return f"{s // 60:02d}:{s % 60:02d}"
+        return f"{s//60:02d}:{s%60:02d}"
 
     def _fingerprint(st: dict) -> tuple:
         disp = st.get("display", "")
-        # Key used for dedup in fallback mode
         if disp == "timer-back":
             return ("tb", int(st.get("remaining_s", 0)))
         if disp == "timer-forward":
             return ("tf", int(st.get("elapsed_s", 0)))
         if disp in ("bar", "dots"):
-            # Bars/dots should repaint each tick in ANSI; in fallback dedup by ~0.1% progress
+            # fallback dedup ~0.1% step
             p = st.get("progress", 0.0)
-            try:
-                p = float(p)
-            except Exception:
-                p = 0.0
+            try: p = float(p)
+            except: p = 0.0
             return ("p", int(p * 1000))
         return ("raw", st.get("phase_id"))
 
-    # Non-TTY safe phase context
+    # Non-TTY-safe context
+    from contextlib import contextmanager
     try:
         ctx = phase_key_mode()
     except Exception:
-        from contextlib import contextmanager
         @contextmanager
-        def _noop():
-            yield
+        def _noop(): yield
         ctx = _noop()
 
     try:
@@ -130,16 +219,14 @@ GOOD_JOB = """
                     # Session ended
                     if renderer and hasattr(renderer, "close"):
                         renderer.close()
-                    # Move cursor below legend once in ANSI mode
                     if ansi:
-                        sys.stdout.write("\x1b[1B\n")
-                        sys.stdout.flush()
+                        sys.stdout.write("\x1b[1B\n"); sys.stdout.flush()
                     else:
                         print("", flush=True)
                     print("[✓] Session finished", flush=True)
                     return
 
-                # Normalize payload keys
+                # Key normalization
                 remaining_s = st.get("remaining_s", st.get("left"))
                 elapsed_s   = st.get("elapsed_s",   st.get("elapsed"))
                 duration_s  = st.get("duration_s",  st.get("total"))
@@ -160,81 +247,70 @@ GOOD_JOB = """
                     "duration_mmss": _mmss(duration_s),
                 }
 
-                # Phase change => print header + initial status + legend
+                # Phase change
                 if phase_id != last_phase_id:
                     last_phase_id = phase_id
                     last_key = None
                     last_status_line = None
 
-                    # Header
                     print(f"{phase_label} phase begins", flush=True)
 
-                    # First status frame
-                    status_line = renderer.frame(payload) if hasattr(renderer, "frame") else renderer.update(payload)
+                    # initial status
+                    status_line = (renderer.frame(payload)
+                                   if hasattr(renderer, "frame")
+                                   else renderer.update(payload))
                     if ansi:
-                        # Ensure the first status line is clean
                         _clear_and_repaint(status_line)
                     else:
                         print(status_line, flush=True)
-                        last_status_line = status_line  # for fallback dedup
+                        last_status_line = status_line
 
-                    # Legend (print once per phase)
+                    # legend once
                     print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
 
-                    # Park cursor on the status line (ANSI only)
+                    # park cursor on status line (ANSI)
                     if ansi:
-                        # Move cursor up to status line (from legend)
-                        sys.stdout.write("\x1b[1A")
-                        sys.stdout.flush()
+                        sys.stdout.write("\x1b[1A"); sys.stdout.flush()
 
-                # Handle hotkeys
+                # hotkeys
                 hk = poll_hotkey()
                 if hk == Hotkey.TOGGLE_HIDE:
                     if renderer and hasattr(renderer, "close"):
                         renderer.close()
-                    # Move below legend and print detach message
                     if ansi:
-                        sys.stdout.write("\x1b[1B\n")
-                        sys.stdout.flush()
+                        sys.stdout.write("\x1b[1B\n"); sys.stdout.flush()
                     else:
                         print("", flush=True)
                     print("[detached] Viewer exited", flush=True)
                     return
                 elif hk == Hotkey.END_PHASE:
-                    try:
-                        end_phase(sock)
-                    except Exception:
-                        pass
+                    try: end_phase(sock)
+                    except Exception: pass
                 elif hk == Hotkey.ABORT:
-                    try:
-                        abort(sock)
-                    except Exception:
-                        pass
+                    try: abort(sock)
+                    except Exception: pass
                     if renderer and hasattr(renderer, "close"):
                         renderer.close()
                     if ansi:
-                        sys.stdout.write("\x1b[1B\n")
-                        sys.stdout.flush()
+                        sys.stdout.write("\x1b[1B\n"); sys.stdout.flush()
                     else:
                         print("", flush=True)
                     print("[✗] Session aborted", flush=True)
                     return
 
-                # Repaint / print logic
-                status_line = renderer.frame(payload) if hasattr(renderer, "frame") else renderer.update(payload)
-
+                # repaint/print
+                status_line = (renderer.frame(payload)
+                               if hasattr(renderer, "frame")
+                               else renderer.update(payload))
                 if ansi:
-                    # Always repaint single-line modes
                     _clear_and_repaint(status_line)
                 else:
-                    # Fallback: dedup prints
                     key = _fingerprint(payload)
                     if key != last_key or status_line != last_status_line:
                         print(status_line, flush=True)
-                        last_status_line = status_line
                         last_key = key
+                        last_status_line = status_line
 
-                # tick (tests usually patch sleep)
                 time.sleep(0.2)
     finally:
         try:
@@ -242,38 +318,11 @@ GOOD_JOB = """
                 renderer.close()
         except Exception:
             pass
-    if os.getenv("SHELLPOMODORO_NONINTERACTIVE") == "1":
-        print(f"{prompt} [auto-continue: non-interactive]")
-        return
 
-    # Safety guard: prevent blocking in non-TTY environments
-    if not sys.stdin.isatty():
-        print(f"{prompt} [auto-continue: non-TTY]")
-        return
-
-    current_platform = _detect_platform()
-
-    if current_platform == "windows":
-        _read_key_windows(prompt)
-    else:
-        _read_key_unix(prompt)
-
-
-def beep(times: int = 1, interval: float = 0.2) -> None:
-    """
-    Play terminal bell notifications with configurable count and spacing.
-
-    Args:
-        times: Number of beeps to play (default: 1)
-        interval: Time interval between beeps in seconds (default: 0.2)
-    """
-    for i in range(times):
-        # Print terminal bell character
-        print("\a", end="", flush=True)
-
-        # Add interval between beeps (except after the last beep)
-        if i < times - 1:
-            time.sleep(interval)
+def run_attach_from_runtime():
+    """Placeholder for attach runtime resolution."""
+    print("Attach command not yet implemented")
+    return
 
 
 def banner() -> str:
@@ -344,8 +393,8 @@ Examples:
   shellpomodoro                    # Use default settings (25min work, 5min break, 4 iterations)
   shellpomodoro --work 30 --break 10  # Custom work and break durations
   shellpomodoro --iterations 6     # Run 6 Pomodoro cycles
-    shellpomodoro --beeps 3          # Play 3 beeps at phase transitions
-    shellpomodoro --display dots --dot-interval 60  # Dots mode, one dot per minute
+  shellpomodoro --beeps 3          # Play 3 beeps at phase transitions
+  shellpomodoro --display dots --dot-interval 60  # Dots mode, one dot per minute
 
 Display modes (--display): timer-back (default), timer-forward, bar, dots
 Note: --dot-interval applies only to --display dots
@@ -362,6 +411,7 @@ Note: --dot-interval applies only to --display dots
 
     parser.add_argument(
         "--break",
+        dest="break_",
         type=int,
         default=5,
         metavar="MINUTES",
@@ -404,6 +454,10 @@ Note: --dot-interval applies only to --display dots
         help="Dot update interval in seconds (only for --display dots)",
     )
 
+    parser.add_argument(
+        "cmd", nargs="*", help="Subcommand (e.g., 'attach')"
+    )
+
     # Parse arguments
     if argv is None:
         argv = sys.argv[1:]
@@ -414,7 +468,7 @@ Note: --dot-interval applies only to --display dots
     if args.work <= 0:
         parser.error("Work duration must be a positive integer")
 
-    if getattr(args, "break") <= 0:
+    if args.break_ <= 0:
         parser.error("Break duration must be a positive integer")
 
     if args.iterations <= 0:
@@ -427,7 +481,7 @@ Note: --dot-interval applies only to --display dots
     if args.work > 180:  # 3 hours
         parser.error("Work duration cannot exceed 180 minutes")
 
-    if getattr(args, "break") > 60:  # 1 hour
+    if args.break_ > 60:  # 1 hour
         parser.error("Break duration cannot exceed 60 minutes")
 
     if args.iterations > 20:
@@ -543,23 +597,27 @@ def main() -> None:
         # Parse command line arguments
         args = parse_args()
 
-        # Handle version flag
+        # Handle version flag - must exit before any other output
         if args.version:
             print(importlib.metadata.version("shellpomodoro"))
-            return
+            sys.exit(0)
+
+        # Handle attach subcommand
+        if hasattr(args, 'cmd') and args.cmd and args.cmd[0] == "attach":
+            return run_attach_from_runtime()
 
         # Set up signal handler for graceful interruption
         setup_signal_handler()
 
         # Display session configuration
-        header = session_header(args.work, getattr(args, "break"), args.iterations)
+        header = session_header(args.work, args.break_, args.iterations)
         print(header)
         print()  # Add blank line for readability
 
         # Execute Pomodoro session
         run(
             args.work,
-            getattr(args, "break"),
+            args.break_,
             args.iterations,
             args.beeps,
             getattr(args, "display"),

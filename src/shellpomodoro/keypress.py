@@ -3,10 +3,20 @@ from __future__ import annotations
 import contextlib
 import platform
 import sys
+from enum import Enum
 from io import UnsupportedOperation
 
 IS_WIN = platform.system().lower().startswith("win")
 CTRL_E = "\x05"  # Ctrl+E
+CTRL_O = "\x0f"  # Ctrl+O
+CTRL_C = "\x03"  # Ctrl+C
+
+class Hotkey(Enum):
+    """Hotkey enumeration for phase control."""
+    NONE = "none"
+    END_PHASE = "end_phase"     # Ctrl+E
+    TOGGLE_HIDE = "toggle_hide" # Ctrl+O 
+    ABORT = "abort"             # Ctrl+C
 
 # --- Windows implementation ---
 if IS_WIN:
@@ -95,3 +105,32 @@ def poll_end_phase() -> bool:
         return _poll_ctrl_e_win()
     else:
         return _poll_ctrl_e_unix(0.0)
+
+def poll_hotkey() -> Hotkey:
+    """
+    Poll for hotkeys (non-blocking). Returns first hotkey found or NONE.
+    """
+    if IS_WIN:
+        if msvcrt and msvcrt.kbhit():
+            ch = msvcrt.getwch()
+            if ch == CTRL_E:
+                return Hotkey.END_PHASE
+            elif ch == CTRL_O:
+                return Hotkey.TOGGLE_HIDE
+            elif ch == CTRL_C:
+                return Hotkey.ABORT
+    else:
+        try:
+            r, _, _ = select.select([sys.stdin], [], [], 0.0)
+            if r:
+                ch = sys.stdin.read(1)
+                if ch == CTRL_E:
+                    return Hotkey.END_PHASE
+                elif ch == CTRL_O:
+                    return Hotkey.TOGGLE_HIDE
+                elif ch == CTRL_C:
+                    return Hotkey.ABORT
+        except (OSError, ValueError):
+            # stdin is not selectable or redirected
+            pass
+    return Hotkey.NONE
