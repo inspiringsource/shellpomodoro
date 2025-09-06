@@ -1,3 +1,17 @@
+import os
+import sys
+
+def _supports_ansi() -> bool:
+    """Return True if stdout likely supports ANSI control sequences."""
+    try:
+        return sys.stdout.isatty() and os.environ.get("TERM", "dumb") != "dumb"
+    except Exception:
+        return False
+
+def _clear_and_repaint(line: str) -> None:
+    """ANSI: clear current line and repaint with `line`, then flush."""
+    sys.stdout.write("\x1b[2K\r" + line)
+    sys.stdout.flush()
 """
 Cross-platform Pomodoro timer CLI implementation.
 """
@@ -25,159 +39,209 @@ GOOD_JOB = """
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝  ╚════╝  ╚═════╝ ╚═════╝ ╚═╝
 """
 
-
-def _signal_handler(signum: int, frame) -> None:
     """
-    Signal handler for graceful interruption.
+    Connect to the session daemon and render the UI in the terminal.
 
-    Args:
-        signum: Signal number (should be SIGINT)
-        frame: Current stack frame (unused)
-
-    Raises:
-        KeyboardInterrupt: Always raises to trigger graceful cleanup
+    Rules:
+    - Print a header once per phase (e.g., "[1/4] Focus").
+    - Print a legend once per phase on the line below the status.
+    - Single-line displays (timer-back/forward/bar/dots) repaint status in place:
+      * ANSI mode: "\x1b[2K\r" + status, flush
+      * Fallback: print(status) only if it changed (dedup)
+    - Ctrl+O (TOGGLE_HIDE) detaches immediately and prints "[detached] Viewer exited".
+    - Ctrl+E ends the phase.
+    - Ctrl+C aborts the session (sends ABORT).
+    - Accept both legacy keys (left/elapsed/total) and new keys (remaining_s/elapsed_s/duration_s).
     """
-    # Raise KeyboardInterrupt to trigger existing cleanup logic
-    raise KeyboardInterrupt
+    import time
+    from .ipc import _connect, hello, status, end_phase, abort
+    from .keypress import phase_key_mode, poll_hotkey, Hotkey
 
-
-def setup_signal_handler() -> None:
-    """
-    Set up SIGINT handler for graceful session interruption.
-
-    This function registers a signal handler that converts SIGINT (Ctrl+C)
-    into a KeyboardInterrupt exception, allowing for proper cleanup and
-    terminal state restoration.
-    """
-    signal.signal(signal.SIGINT, _signal_handler)
-
-
-def mmss(seconds: int) -> str:
-    """
-    Format seconds as MM:SS string with zero padding.
-
-    Args:
-        seconds: Number of seconds to format
-
-    Returns:
-        str: Formatted time string in MM:SS format
-
-    Examples:
-        >>> mmss(0)
-        '00:00'
-        >>> mmss(65)
-        '01:05'
-        >>> mmss(3661)
-        '61:01'
-    """
-    # Ensure non-negative value
-    seconds = max(0, int(seconds))
-
-    # Calculate minutes and remaining seconds
-    minutes, remaining_seconds = divmod(seconds, 60)
-
-    # Return zero-padded format
-    return f"{minutes:02d}:{remaining_seconds:02d}"
-
-
-def _detect_platform() -> str:
-    """
-    Detect the current platform for input handling.
-
-    Returns:
-        str: 'windows' for Windows systems, 'unix' for Unix-like systems
-    """
-    return "windows" if platform.system() == "Windows" else "unix"
-
-
-def _read_key_windows(prompt: str = "Press any key to continue...") -> None:
-    """
-    Windows-specific keypress handling using msvcrt.
-
-    Args:
-        prompt: Message to display to user
-    """
+    port, secret = info["port"], info["secret"]
     try:
-        import msvcrt
-
-        print(prompt, end="", flush=True)
-        msvcrt.getch()
-        print()  # Add newline after keypress
-    except ImportError:
-        # Fallback to standard input if msvcrt is not available
-        input(prompt)
-
-
-@contextmanager
-def _raw_terminal():
-    """
-    Context manager for safe terminal state management on Unix systems.
-
-    Yields:
-        None: Context for raw terminal mode
-
-    Raises:
-        ImportError: If termios/tty modules are not available
-        OSError: If terminal operations fail
-    """
-    try:
-        import termios
-        import tty
-
-        # Save original terminal settings
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-
-        try:
-            # Set terminal to raw mode
-            tty.setraw(fd)
-            yield
-        finally:
-            # Always restore original settings
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-
-    except (ImportError, OSError):
-        # Fallback if terminal operations are not supported
-        yield
-
-
-def _read_key_unix(prompt: str = "Press any key to continue...") -> None:
-    """
-    Unix-specific keypress handling using termios and tty modules.
-
-    Args:
-        prompt: Message to display to user
-    """
-    import sys
-
-    if not sys.stdin.isatty():
-        print(f"{prompt} [auto-continue: non-TTY]")
+        sock = _connect(port)
+    except (ConnectionRefusedError, OSError) as e:
+        print(f"Unable to connect to session daemon: {e}", flush=True)
         return
 
     try:
-        print(prompt, end="", flush=True)
+        if not hello(sock, secret):
+            print("Authentication failed", flush=True)
+            return
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        print("Connection lost during authentication", flush=True)
+        return
 
-        with _raw_terminal():
-            # Read single character without Enter requirement
-            char = sys.stdin.read(1)
+    try:
+        renderer = make_renderer(info)  # existing factory
+    except Exception as e:
+        print(f"Unable to create UI renderer: {e}", flush=True)
+        return
 
-        print()  # Add newline after keypress
+    # Per-phase dedup state
+    last_phase_id = None
+    last_key = None
+    last_status_line = None
+    ansi = _supports_ansi()
 
-    except (ImportError, OSError):
-        # Fallback to standard input if raw terminal mode fails
-        input(prompt)
+    def _mmss(s):
+        if s is None:
+            s = 0
+        try:
+            s = int(s)
+        except Exception:
+            s = 0
+        if s < 0:
+            s = 0
+        return f"{s // 60:02d}:{s % 60:02d}"
 
+    def _fingerprint(st: dict) -> tuple:
+        disp = st.get("display", "")
+        # Key used for dedup in fallback mode
+        if disp == "timer-back":
+            return ("tb", int(st.get("remaining_s", 0)))
+        if disp == "timer-forward":
+            return ("tf", int(st.get("elapsed_s", 0)))
+        if disp in ("bar", "dots"):
+            # Bars/dots should repaint each tick in ANSI; in fallback dedup by ~0.1% progress
+            p = st.get("progress", 0.0)
+            try:
+                p = float(p)
+            except Exception:
+                p = 0.0
+            return ("p", int(p * 1000))
+        return ("raw", st.get("phase_id"))
 
-def read_key(prompt: str = "Press any key to continue...") -> None:
-    """
-    Cross-platform single keypress input without Enter requirement.
+    # Non-TTY safe phase context
+    try:
+        ctx = phase_key_mode()
+    except Exception:
+        from contextlib import contextmanager
+        @contextmanager
+        def _noop():
+            yield
+        ctx = _noop()
 
-    Args:
-        prompt: Message to display to user
-    """
-    import os
+    try:
+        with ctx:
+            while True:
+                st = status(sock)
+                if st is None:
+                    # Session ended
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    # Move cursor below legend once in ANSI mode
+                    if ansi:
+                        sys.stdout.write("\x1b[1B\n")
+                        sys.stdout.flush()
+                    else:
+                        print("", flush=True)
+                    print("[✓] Session finished", flush=True)
+                    return
 
-    # Global kill-switch for tests and automation
+                # Normalize payload keys
+                remaining_s = st.get("remaining_s", st.get("left"))
+                elapsed_s   = st.get("elapsed_s",   st.get("elapsed"))
+                duration_s  = st.get("duration_s",  st.get("total"))
+                display     = st.get("display", "")
+                phase_id    = st.get("phase_id")
+                phase_label = st.get("phase_label", "")
+
+                payload = {
+                    "phase_id": phase_id,
+                    "phase_label": phase_label,
+                    "display": display,
+                    "progress": st.get("progress", 0.0),
+                    "remaining_s": remaining_s,
+                    "elapsed_s": elapsed_s,
+                    "duration_s": duration_s,
+                    "remaining_mmss": _mmss(remaining_s),
+                    "elapsed_mmss": _mmss(elapsed_s),
+                    "duration_mmss": _mmss(duration_s),
+                }
+
+                # Phase change => print header + initial status + legend
+                if phase_id != last_phase_id:
+                    last_phase_id = phase_id
+                    last_key = None
+                    last_status_line = None
+
+                    # Header
+                    print(f"{phase_label} phase begins", flush=True)
+
+                    # First status frame
+                    status_line = renderer.frame(payload) if hasattr(renderer, "frame") else renderer.update(payload)
+                    if ansi:
+                        # Ensure the first status line is clean
+                        _clear_and_repaint(status_line)
+                    else:
+                        print(status_line, flush=True)
+                        last_status_line = status_line  # for fallback dedup
+
+                    # Legend (print once per phase)
+                    print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+
+                    # Park cursor on the status line (ANSI only)
+                    if ansi:
+                        # Move cursor up to status line (from legend)
+                        sys.stdout.write("\x1b[1A")
+                        sys.stdout.flush()
+
+                # Handle hotkeys
+                hk = poll_hotkey()
+                if hk == Hotkey.TOGGLE_HIDE:
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    # Move below legend and print detach message
+                    if ansi:
+                        sys.stdout.write("\x1b[1B\n")
+                        sys.stdout.flush()
+                    else:
+                        print("", flush=True)
+                    print("[detached] Viewer exited", flush=True)
+                    return
+                elif hk == Hotkey.END_PHASE:
+                    try:
+                        end_phase(sock)
+                    except Exception:
+                        pass
+                elif hk == Hotkey.ABORT:
+                    try:
+                        abort(sock)
+                    except Exception:
+                        pass
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    if ansi:
+                        sys.stdout.write("\x1b[1B\n")
+                        sys.stdout.flush()
+                    else:
+                        print("", flush=True)
+                    print("[✗] Session aborted", flush=True)
+                    return
+
+                # Repaint / print logic
+                status_line = renderer.frame(payload) if hasattr(renderer, "frame") else renderer.update(payload)
+
+                if ansi:
+                    # Always repaint single-line modes
+                    _clear_and_repaint(status_line)
+                else:
+                    # Fallback: dedup prints
+                    key = _fingerprint(payload)
+                    if key != last_key or status_line != last_status_line:
+                        print(status_line, flush=True)
+                        last_status_line = status_line
+                        last_key = key
+
+                # tick (tests usually patch sleep)
+                time.sleep(0.2)
+    finally:
+        try:
+            if renderer and hasattr(renderer, "close"):
+                renderer.close()
+        except Exception:
+            pass
     if os.getenv("SHELLPOMODORO_NONINTERACTIVE") == "1":
         print(f"{prompt} [auto-continue: non-interactive]")
         return
