@@ -325,15 +325,38 @@ def parse_args(argv: List[str] = None) -> argparse.Namespace:
     Raises:
         SystemExit: If arguments are invalid or help is requested
     """
-    p = argparse.ArgumentParser(prog="shellpomodoro", add_help=True)
-    p.add_argument("--work", type=int, default=25, dest="work")
-    p.add_argument("--break", type=int, default=5, dest="break_")
-    p.add_argument("--iterations", type=int, default=4)
-    p.add_argument("--beeps", type=int, default=2)
-    p.add_argument("--display", choices=("timer-back","timer-forward","bar","dots"), default="timer-back")
-    p.add_argument("--dot-interval", type=int, default=None, dest="dot_interval")
-    p.add_argument("--version", "-v", action="store_true")
-    p.add_argument("subcommand", nargs="?", choices=("attach",), default=None)
+    p = argparse.ArgumentParser(
+        prog="shellpomodoro", 
+        description="Pomodoro timer CLI for focused work sessions",
+        add_help=True
+    )
+    p.add_argument("--work", type=int, default=25, dest="work", 
+                   metavar="MINUTES", help="Work duration in minutes")
+    p.add_argument("--break", type=int, default=5, 
+                   metavar="MINUTES", help="Break duration in minutes")
+    p.add_argument("--iterations", type=int, default=4,
+                   metavar="COUNT", help="Number of work/break cycles")
+    p.add_argument("--beeps", type=int, default=2,
+                   metavar="COUNT", help="Number of notification beeps")
+    p.add_argument("--display", choices=("timer-back","timer-forward","bar","dots"), 
+                   default="timer-back", help="Display mode for timer")
+    p.add_argument("--dot-interval", type=int, default=None, dest="dot_interval",
+                   help="Dot interval in seconds for dots mode")
+    p.add_argument("--version", "-v", action="store_true", 
+                   help="Show version and exit")
+    p.add_argument("subcommand", nargs="?", choices=("attach",), default=None,
+                   help="Attach to existing session")
+    
+    # Add examples to help
+    p.epilog = """
+Examples:
+  shellpomodoro                                 # Default: 25min work, 5min break, 4 cycles
+  shellpomodoro --work 50 --break 10           # Custom work/break duration
+  shellpomodoro --iterations 6 --beeps 0       # 6 cycles with no beeps
+  shellpomodoro --display bar                  # Use progress bar display
+  shellpomodoro attach                         # Attach to existing session
+    """
+    
     return p.parse_args(argv)
 
 
@@ -481,7 +504,7 @@ def main() -> None:
 
     # normal start
     work = int(args.work)
-    break_minutes = int(args.break_)
+    break_minutes = int(getattr(args, "break"))
     iterations = int(args.iterations)
     beeps = int(args.beeps)
     display = str(args.display)
@@ -544,14 +567,15 @@ def attach_ui(info: dict) -> None:
         return f"{s//60:02d}:{s%60:02d}"
 
     def _fingerprint(st: dict):
-        d = st.get("display")
+        d = st.get("display", "")
         if d == "timer-back":
             return ("tb", int(st.get("remaining_s") or 0))
         if d == "timer-forward":
             return ("tf", int(st.get("elapsed_s") or 0))
         if d in ("bar","dots"):
             return ("p", int(round(st.get("progress", 0.0)*1000)))
-        return ("raw", st.get("phase_id"))
+        # Default: use remaining_s as fallback for timer modes
+        return ("def", int(st.get("remaining_s") or 0))
 
     try:
         # Safe phase_key_mode for non-TTY environments

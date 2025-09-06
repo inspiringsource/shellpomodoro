@@ -12,7 +12,7 @@ def test_bar_mode_updates_in_place_and_prints_legend_once():
         def __init__(self):
             self.calls = 0
 
-        def update(self, progress):
+        def frame(self, payload):
             self.calls += 1
             return f"[BAR {self.calls}]"
 

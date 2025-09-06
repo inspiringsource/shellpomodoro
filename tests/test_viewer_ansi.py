@@ -12,9 +12,10 @@ def test_timer_single_line_with_legend_below():
         def __init__(self):
             self.calls = 0
 
-        def update(self, elapsed):
+        def frame(self, payload):
             self.calls += 1
-            m, s = divmod(max(0, int(60 - elapsed)), 60)
+            remaining_s = payload.get("remaining_s", 0)
+            m, s = divmod(max(0, int(remaining_s)), 60)
             return f"[Focus] ⏳ {m:02d}:{s:02d}"
 
         def close(self):
@@ -89,7 +90,7 @@ def test_ansi_fallback_mode():
         def __init__(self):
             self.calls = 0
 
-        def update(self, elapsed):
+        def frame(self, payload):
             self.calls += 1
             return f"[Focus] ⏳ 01:0{self.calls}"
 
