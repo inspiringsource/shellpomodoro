@@ -500,7 +500,9 @@ def main() -> None:
         if not info:
             print("No active shellpomodoro session to attach.", flush=True)
             sys.exit(1)
-        return attach_ui(info)
+            return  # In case sys.exit is mocked
+        else:
+            return attach_ui(info)
 
     # normal start
     work = int(args.work)
