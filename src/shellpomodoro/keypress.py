@@ -1,5 +1,59 @@
-# src/shellpomodoro/keypress.py
-from __future__ import annotations
+def _read_one_char_if_available():
+    """
+    Non-blocking single-char read. Assumes phase_key_mode() already set the TTY into
+    cbreak/raw (POSIX). On Windows, uses msvcrt.
+    Returns a 1-char string or None if no input available.
+    """
+    import os
+
+    if os.name == "nt":
+        try:
+            import msvcrt  # type: ignore
+        except Exception:
+            return None
+        if msvcrt.kbhit():
+            ch = msvcrt.getwch()
+            return ch if ch else None
+        return None
+    else:
+        import sys, select
+
+        try:
+            r, _, _ = select.select([sys.stdin], [], [], 0)
+        except Exception:
+            return None
+        if not r:
+            return None
+        try:
+            ch = sys.stdin.read(1)
+            return ch if ch else None
+        except (IOError, OSError, EOFError):
+            return None
+
+
+from enum import Enum, auto
+
+CTRL_E = "\x05"  # Ctrl+E
+CTRL_O = "\x0f"  # Ctrl+O
+
+
+class Hotkey(Enum):
+    NONE = auto()
+    END_PHASE = auto()
+    TOGGLE_HIDE = auto()  # For Ctrl+O detach
+
+
+def poll_hotkey() -> "Hotkey":
+    ch = _read_one_char_if_available()
+    if not ch:
+        return Hotkey.NONE
+    if ch == CTRL_E:
+        return Hotkey.END_PHASE
+    if ch == CTRL_O:
+        return Hotkey.TOGGLE_HIDE
+    return Hotkey.NONE
+
+
 import contextlib
 import platform
 import sys

@@ -1295,7 +1295,12 @@ class TestMainFunction(unittest.TestCase):
                             "src.shellpomodoro.cli.session_header"
                         ) as mock_header:
                             with patch("src.shellpomodoro.cli.run") as mock_run:
-                                main()
+                                # Version flag should cause SystemExit with code 0
+                                with self.assertRaises(SystemExit) as cm:
+                                    main()
+                                
+                                # Should exit with code 0
+                                self.assertEqual(cm.exception.code, 0)
 
                                 # Verify version was retrieved
                                 mock_version.assert_called_once_with("shellpomodoro")
