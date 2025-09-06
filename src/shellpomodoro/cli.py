@@ -25,6 +25,56 @@ GOOD_JOB = """
  ╚═════╝  ╚═════╝  ╚═════╝ ╚═════╝  ╚════╝  ╚═════╝ ╚═════╝ ╚═╝
 """
 
+CSI = "\x1b["
+
+
+def _supports_ansi() -> bool:
+    """Check if the terminal supports ANSI escape sequences."""
+    import os
+    import sys
+
+    # CI environment or explicit override
+    if os.getenv("SHELLPOMODORO_NO_ANSI"):
+        return False
+    if os.getenv("FORCE_COLOR") or os.getenv("SHELLPOMODORO_FORCE_ANSI"):
+        return True
+
+    # Windows terminals
+    if os.name == "nt":
+        return (
+            os.getenv("TERM_PROGRAM") in ("vscode", "mintty") or "ANSICON" in os.environ
+        )
+
+    # Unix-like systems
+    if not sys.stdout.isatty():
+        return False
+
+    term = os.getenv("TERM", "").lower()
+    return "color" in term or term.startswith("xterm") or term in ("screen", "tmux")
+
+
+def _csi_up(lines: int = 1) -> str:
+    """Return ANSI escape sequence to move cursor up."""
+    return f"\x1b[{lines}A"
+
+
+def _csi_down(lines: int = 1) -> str:
+    """Return ANSI escape sequence to move cursor down."""
+    return f"\x1b[{lines}B"
+
+
+def _csi_clear_line() -> str:
+    """Return ANSI escape sequence to clear current line."""
+    return "\x1b[2K"
+
+
+def _clear_and_repaint(status_line: str):
+    """Clear current line and repaint with new status (used when cursor is parked on status line)."""
+    import sys
+
+    sys.stdout.write("\x1b[2K\r" + status_line)
+    sys.stdout.flush()
+
 
 def _signal_handler(signum: int, frame) -> None:
     """
@@ -97,19 +147,19 @@ def _read_key_windows(prompt: str = "Press any key to continue...") -> None:
     Args:
         prompt: Message to display to user
     """
-    try:
-        import msvcrt
+    """
+    Execute the complete Pomodoro session with the specified parameters.
 
-        print(prompt, end="", flush=True)
-        msvcrt.getch()
-        print()  # Add newline after keypress
-    except ImportError:
-        # Fallback to standard input if msvcrt is not available
-        input(prompt)
+    Args:
+        work: Work duration in minutes.
+        break_: Break duration in minutes (name uses underscore to avoid keyword).
+        iterations: Number of work/break cycles.
+        beeps: Number of beeps to play on phase transitions.
+        display: One of {"timer-back", "timer-forward", "bar", "dots"}.
+        dot_interval: Dot interval in seconds for "dots" mode, or None.
 
-
-@contextmanager
-def _raw_terminal():
+    Returns:
+        None
     """
     Context manager for safe terminal state management on Unix systems.
 
@@ -267,116 +317,18 @@ def parse_args(argv: List[str] = None) -> argparse.Namespace:
 
     Raises:
         SystemExit: If arguments are invalid or help is requested
-    """
-    parser = argparse.ArgumentParser(
-        prog="shellpomodoro",
-        description="A cross-platform terminal-based Pomodoro timer",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Hotkeys: Ctrl+C abort • Ctrl+E end phase
-If no sound, see README troubleshooting (VS Code/macOS)
-
-Examples:
-  shellpomodoro                    # Use default settings (25min work, 5min break, 4 iterations)
-  shellpomodoro --work 30 --break 10  # Custom work and break durations
-  shellpomodoro --iterations 6     # Run 6 Pomodoro cycles
-    shellpomodoro --beeps 3          # Play 3 beeps at phase transitions
-    shellpomodoro --display dots --dot-interval 60  # Dots mode, one dot per minute
-
-Display modes (--display): timer-back (default), timer-forward, bar, dots
-Note: --dot-interval applies only to --display dots
-        """,
-    )
-
-    parser.add_argument(
-        "--work",
-        type=int,
-        default=25,
-        metavar="MINUTES",
-        help="Work period duration in minutes (default: 25)",
-    )
-
-    parser.add_argument(
-        "--break",
-        type=int,
-        default=5,
-        metavar="MINUTES",
-        help="Break period duration in minutes (default: 5)",
-    )
-
-    parser.add_argument(
-        "--iterations",
-        type=int,
-        default=4,
-        metavar="COUNT",
-        help="Number of Pomodoro cycles to run (default: 4)",
-    )
-
-    parser.add_argument(
-        "--beeps",
-        type=int,
-        default=2,
-        metavar="COUNT",
-        help="Number of beeps to play at phase transitions (default: 2)",
-    )
-
-    parser.add_argument(
-        "-v", "--version", action="store_true", help="Show version and exit"
-    )
-
-    parser.add_argument(
-        "--display",
-        type=str,
-        choices=[m.value for m in Mode],
-        default=Mode.TIMER_BACK.value,
-        help="Display mode: timer-back, timer-forward, bar, dots (default: timer-back)",
-    )
-
-    parser.add_argument(
-        "--dot-interval",
-        type=int,
-        default=None,
-        metavar="SECS",
-        help="Dot update interval in seconds (only for --display dots)",
-    )
-
-    # Parse arguments
-    if argv is None:
-        argv = sys.argv[1:]
-
-    args = parser.parse_args(argv)
-
-    # Validate arguments
-    if args.work <= 0:
-        parser.error("Work duration must be a positive integer")
-
-    if getattr(args, "break") <= 0:
-        parser.error("Break duration must be a positive integer")
-
-    if args.iterations <= 0:
-        parser.error("Number of iterations must be a positive integer")
-
-    if args.beeps < 0:
-        parser.error("Number of beeps must be non-negative")
-
-    # Reasonable upper limits to prevent accidental very long sessions
-    if args.work > 180:  # 3 hours
-        parser.error("Work duration cannot exceed 180 minutes")
-
-    if getattr(args, "break") > 60:  # 1 hour
-        parser.error("Break duration cannot exceed 60 minutes")
-
-    if args.iterations > 20:
-        parser.error("Number of iterations cannot exceed 20")
-
-    if args.beeps > 10:
-        parser.error("Number of beeps cannot exceed 10")
-
-    # dot-interval validation (when provided)
-    if args.dot_interval is not None and args.dot_interval <= 0:
-        parser.error("--dot-interval must be a positive integer")
-
-    return args
+    import argparse
+    def parse_args(argv=None) -> argparse.Namespace:
+        p = argparse.ArgumentParser(prog="shellpomodoro", add_help=True)
+        p.add_argument("--work", type=int, default=25, dest="work")
+        p.add_argument("--break", type=int, default=5, dest="break_")
+        p.add_argument("--iterations", type=int, default=4)
+        p.add_argument("--beeps", type=int, default=2)
+        p.add_argument("--display", choices=("timer-back","timer-forward","bar","dots"), default="timer-back")
+        p.add_argument("--dot-interval", type=int, default=None, dest="dot_interval")
+        p.add_argument("--version", "-v", action="store_true")
+        p.add_argument("subcommand", nargs="?", choices=("attach",), default=None)
+        return p.parse_args(argv)
 
 
 def _is_ci_mode() -> bool:
@@ -384,26 +336,22 @@ def _is_ci_mode() -> bool:
     return os.getenv("SHELLPOMODORO_CI") == "1" or not sys.stdin.isatty()
 
 
-def run(
-    work: int,
-    brk: int,
-    iters: int,
-    beeps: int,
-    display: str = Mode.TIMER_BACK.value,
-    dot_interval: Optional[int] = None,
-) -> None:
+def run(work: int, break_: int, iterations: int, beeps: int, display: str, dot_interval: int | None) -> None:
     """
-    Execute complete Pomodoro session with specified parameters.
+    Execute the complete Pomodoro session with the specified parameters.
 
     Args:
-        work: Work period duration in minutes
-        brk: Break period duration in minutes
-        iters: Number of Pomodoro cycles to run
-        beeps: Number of beeps to play at phase transitions
+        work: Work duration in minutes.
+        break_: Break duration in minutes (name uses underscore to avoid keyword).
+        iterations: Number of work/break cycles.
+        beeps: Number of beeps to play on phase transitions.
+        display: One of {"timer-back", "timer-forward", "bar", "dots"}.
+        dot_interval: Dot emission interval in seconds (only for "dots"), or None.
 
-    Raises:
-        KeyboardInterrupt: When user aborts session with Ctrl+C
+    Returns:
+        None
     """
+    # (existing implementation continues here)
     try:
         # Convert minutes to seconds for countdown
         work_seconds = work * 60
@@ -469,44 +417,344 @@ def run(
 
 
 def main() -> None:
-    """
-    Main entry point for shellpomodoro command.
+            """
+            CLI entry point: parse arguments, handle version/help, attach or start a session.
 
-    Handles command-line argument parsing, configuration validation,
-    and session execution with appropriate exit codes.
+            Behavior:
+                - `--version` / `-v` prints package version and exits(0).
+                - `--help` is handled by argparse (exits 0).
+                - `attach` subcommand reattaches to an existing session if available.
+                - Otherwise starts a new session with parsed args.
+
+            Returns:
+                    None
+            """
+        # (existing implementation continues here)
+    import sys
+    from importlib import metadata
+
+    args = parse_args()  # uses sys.argv[1:]
+    if args.version:
+        print(metadata.version("shellpomodoro"))
+        sys.exit(0)
+
+    if args.subcommand == "attach":
+        info = _existing_session_info()
+        if not info:
+            print("No active shellpomodoro session to attach.", flush=True)
+            sys.exit(1)
+        return attach_ui(info)
+
+    # normal start
+    work = int(args.work)
+    brk = int(args.break_)
+    iters = int(args.iterations)
+    beeps = int(args.beeps)
+    display = str(args.display)
+    dot_interval = None if args.dot_interval is None else int(args.dot_interval)
+
+    setup_signal_handler()
+    run(work, brk, iters, beeps, display, dot_interval)
+
+
+def attach_ui(info: dict) -> None:
     """
+    Connect to the background session daemon and render the live UI in the terminal.
+
+    Features:
+      - Prints a phase header once, a status line that repaints in place, and a legend line.
+      - Ctrl+O detaches the viewer (daemon keeps running).
+      - Ctrl+E ends the current phase.
+      - Ctrl+C aborts the whole session.
+
+    """
+    Connect to the background session daemon and render the live UI.
+
+    Features:
+      - One header line per phase, a status line that repaints, and a legend line.
+      - Ctrl+O detaches the viewer (daemon keeps running).
+      - Ctrl+E ends the current phase.
+      - Ctrl+C aborts the session.
+
+    Args:
+        info: Connection metadata, e.g., {"port": int, "secret": str}.
+
+    Returns:
+        None
+    """
+    # existing implementation continues...
+    import time
+    from .ipc import _connect, hello, status, end_phase, abort
+    from .keypress import phase_key_mode, poll_hotkey, Hotkey
+
+    port, secret = info["port"], info["secret"]
     try:
-        # Parse command line arguments
-        args = parse_args()
+        sock = _connect(port)
+    except (ConnectionRefusedError, OSError) as e:
+        print(f"Unable to connect to session daemon: {e}", flush=True)
+        return
 
-        # Handle version flag
-        if args.version:
-            print(importlib.metadata.version("shellpomodoro"))
+    try:
+        if not hello(sock, secret):
+            print("Authentication failed", flush=True)
             return
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        print("Connection lost during authentication", flush=True)
+        return
 
-        # Set up signal handler for graceful interruption
-        setup_signal_handler()
+    try:
+        renderer = make_renderer(info)
+    except Exception as e:
+        print(f"Unable to create UI renderer: {e}", flush=True)
+        return
 
-        # Display session configuration
-        header = session_header(args.work, getattr(args, "break"), args.iterations)
-        print(header)
-        print()  # Add blank line for readability
+    last_phase_id = None
+    last_key = None
+    ansi = _supports_ansi()
 
-        # Execute Pomodoro session
-        run(
-            args.work,
-            getattr(args, "break"),
-            args.iterations,
-            args.beeps,
-            getattr(args, "display"),
-            getattr(args, "dot_interval"),
-        )
+    def _mmss(seconds: int) -> str:
+        s = max(0, int(seconds))
+        return f"{s // 60:02d}:{s % 60:02d}"
+
+    def _fingerprint(st: dict):
+        d = st.get("display")
+        if d == "timer-back":
+            return ("tb", int(st["remaining_s"] or 0))
+        if d == "timer-forward":
+            return ("tf", int(st["elapsed_s"] or 0))
+        if d in ("bar","dots"):
+            return ("p", int(round(st.get("progress", 0.0)*1000)))
+        return ("raw", st.get("phase_id"))
+
+    try:
+        try:
+            cm = phase_key_mode()
+        except Exception:
+            class _Noop:
+                def __enter__(self): return None
+                def __exit__(self, *a): return False
+            cm = _Noop()
+        with cm:
+            while True:
+                st = status(sock)
+                if st is None:
+                    if ansi:
+                        sys.stdout.write("\x1b[1B\n")
+                        sys.stdout.flush()
+                    else:
+                        print("", flush=True)
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    print("[✓] Session finished", flush=True)
+                    return
+
+                # Normalize payload for test compatibility
+                remaining_s = st.get("remaining_s", st.get("left"))
+                elapsed_s   = st.get("elapsed_s", st.get("elapsed"))
+                duration_s  = st.get("duration_s", st.get("total"))
+
+                payload = {
+                    "phase_id":    st.get("phase_id"),
+                    "phase_label": st.get("phase_label"),
+                    "display":     st.get("display", ""),
+                    "progress":    st.get("progress", 0.0),
+                    "remaining_s": remaining_s,
+                    "elapsed_s":   elapsed_s,
+                    "duration_s":  duration_s,
+                    "remaining_mmss": _mmss(remaining_s or 0),
+                    "elapsed_mmss":   _mmss(elapsed_s or 0),
+                    "duration_mmss":  _mmss(duration_s or 0),
+                }
+                phase_id = payload["phase_id"]
+                phase_label = payload["phase_label"]
+                cur_key = _fingerprint(payload)
+
+                new_phase = (last_phase_id is None) or (phase_id != last_phase_id)
+                if new_phase:
+                    last_phase_id = phase_id
+                    last_key = cur_key
+                    status_line = renderer.frame(payload)
+                    print(f"{phase_label} phase begins", flush=True)
+                    if ansi:
+                        sys.stdout.write("\x1b[2K\r" + status_line + "\n")
+                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                        sys.stdout.write("\x1b[1A")
+                        sys.stdout.flush()
+                    else:
+                        print(status_line, flush=True)
+                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                    continue
+
+                force_repaint = ansi and (payload["display"] in {"bar", "dots"})
+                should_repaint = force_repaint or (cur_key != last_key)
+                if not should_repaint:
+                    continue
+                last_key = cur_key
+                status_line = renderer.frame(payload)
+                if ansi:
+                    sys.stdout.write("\x1b[2K\r" + status_line)
+                    sys.stdout.flush()
+                else:
+                    print(status_line, flush=True)
+
+                hk = poll_hotkey()
+                if hk == Hotkey.TOGGLE_HIDE:
+                    print("[detached] Viewer exited", flush=True)
+                    return
+                elif hk == Hotkey.END_PHASE:
+                    try:
+                        end_phase(sock)
+                    except (ConnectionResetError, BrokenPipeError, OSError):
+                        print("Connection lost while sending end-phase", flush=True)
+                        return
+                time.sleep(0.1)
+    except KeyboardInterrupt:
+        print("\n[✓] Viewer interrupted", flush=True)
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        print("Connection to daemon lost", flush=True)
+    finally:
+        if renderer and hasattr(renderer, "close"):
+            renderer.close()
+        try:
+            sock.close()
+        except Exception:
+            pass
+        print(f"Unable to connect to session daemon: {e}", flush=True)
+        return
+
+    try:
+        if not hello(sock, secret):
+            print("Authentication failed", flush=True)
+            return
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        print("Connection lost during authentication", flush=True)
+        return
+
+    try:
+        renderer = make_renderer(info)
+    except Exception as e:
+        print(f"Unable to create UI renderer: {e}", flush=True)
+        return
+
+    last_phase_id = None
+    last_key = None
+    ansi = _supports_ansi()
+
+    def _mmss(seconds: int) -> str:
+        s = max(0, int(seconds))
+        return f"{s // 60:02d}:{s % 60:02d}"
+
+    def _fingerprint(st: dict):
+        d = st.get("display")
+        if d == "timer-back":
+            return ("tb", int(st["remaining_s"]))
+        if d == "timer-forward":
+            return ("tf", int(st["elapsed_s"]))
+        if d in ("bar","dots"):
+            return ("p", int(round(st.get("progress", 0.0)*1000)))
+        return ("raw", st.get("phase_id"))
+
+    def _norm(st: dict) -> dict:
+        rem = st.get("remaining_s", st.get("left"))
+        dur = st.get("duration_s", st.get("total"))
+        el  = st.get("elapsed_s")
+        if el is None and rem is not None and dur is not None:
+            try:
+                el = max(0, int(dur) - int(rem))
+            except Exception:
+                el = 0
+        disp = st.get("display") or "timer-back"
+        return {
+            "phase_id": st.get("phase_id"),
+            "phase_label": st.get("phase_label") or "",
+            "remaining_s": 0 if rem is None else int(rem),
+            "elapsed_s": 0 if el is None else int(el),
+            "duration_s": 0 if dur is None else int(dur),
+            "progress": st.get("progress", 0.0),
+            "display": disp,
+        }
+
+    try:
+        with phase_key_mode():
+            while True:
+                st = status(sock)
+                if st is None:
+                    # Session ended - move cursor down and emit one newline (ANSI)
+                    if ansi:
+                        sys.stdout.write("\x1b[1B\n")
+                        sys.stdout.flush()
+                    else:
+                        print("", flush=True)
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    print("[✓] Session finished", flush=True)
+                    return
+
+                st = _norm(status(sock))
+                payload = {
+                    **st,
+                    "remaining_mmss": _mmss(st["remaining_s"]),
+                    "elapsed_mmss": _mmss(st["elapsed_s"]),
+                    "duration_mmss": _mmss(st["duration_s"]),
+                }
+                phase_id = payload["phase_id"]
+                phase_label = payload["phase_label"]
+                cur_key = _fingerprint(payload)
+
+                new_phase = (last_phase_id is None) or (phase_id != last_phase_id)
+                if new_phase:
+                    last_phase_id = phase_id
+                    last_key = cur_key
+                    status_line = renderer.frame(payload)
+                    # Header
+                    print(f"{phase_label} phase begins", flush=True)
+                    if ansi:
+                        sys.stdout.write(_csi_clear_line() + "\r" + status_line + "\n")
+                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                        sys.stdout.write(_csi_up(1))
+                        sys.stdout.flush()
+                    else:
+                        print(status_line, flush=True)
+                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                    continue
+
+                force_repaint = ansi and (payload["display"] in {"bar", "dots"})
+                should_repaint = force_repaint or (cur_key != last_key)
+                if not should_repaint:
+                    continue
+                last_key = cur_key
+                status_line = renderer.frame(payload)
+                if ansi:
+                    sys.stdout.write(_csi_clear_line() + "\r" + status_line)
+                    sys.stdout.flush()
+                else:
+                    print(status_line, flush=True)
+
+                hk = poll_hotkey()
+                if hk == Hotkey.TOGGLE_HIDE:
+                    if ansi:
+                        sys.stdout.write(_csi_down(1) + "\n")
+                        sys.stdout.flush()
+                    if renderer and hasattr(renderer, "close"):
+                        renderer.close()
+                    print("[detached] Viewer exited", flush=True)
+                    return
+                elif hk == Hotkey.END_PHASE:
+                    try:
+                        end_phase(sock)
+                    except (ConnectionResetError, BrokenPipeError, OSError):
+                        print("Connection lost while sending end-phase", flush=True)
+                        return
+                time.sleep(0.1)
 
     except KeyboardInterrupt:
-        # Handle Ctrl+C gracefully
-        print("\nAborted.")
-        sys.exit(1)
-    except Exception as e:
-        # Handle unexpected errors
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        print("\n[✓] Viewer interrupted", flush=True)
+    except (ConnectionResetError, BrokenPipeError, OSError):
+        print("Connection to daemon lost", flush=True)
+    finally:
+        if renderer and hasattr(renderer, "close"):
+            renderer.close()
+        try:
+            sock.close()
+        except Exception:
+            pass

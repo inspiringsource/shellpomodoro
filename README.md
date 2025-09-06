@@ -39,6 +39,7 @@ uv pip install shellpomodoro
 git clone https://github.com/inspiringsource/shellpomodoro.git
 cd shellpomodoro
 python3 -m venv .venv
+# or python -m venv .venv
 # macOS/Linux
 source .venv/bin/activate
 # Windows PowerShell
@@ -46,13 +47,7 @@ source .venv/bin/activate
 # Windows CMD
 .\.venv\Scripts\activate.bat
 pip install -U pip
-pip install -U pip
-```
-
-Alternative: Using pipx (isolated install)
-
-```bash
-pipx install .
+pip install -e .
 ```
 
 ## Usage
@@ -138,6 +133,20 @@ shellpomodoro --display dots --dot-interval 60   # one dot per minute
 - **Phase Transitions**: Press `Ctrl+E` to end the current phase early (WORK → BREAK, BREAK → next WORK)
 - **Real-time Display**: See countdown timer, current phase, and instructions
 
+## Detach / Reattach
+
+- Press `Ctrl+O` to **detach** the UI; the session continues in the background.
+- Run `shellpomodoro attach` to **reattach** from the same or another terminal and resume viewing.
+- Hotkeys are shown once per phase on a separate line under the timer/progress line.
+- Beeps continue while detached: Windows (winsound), macOS/Linux best-effort via terminal bell.
+
+Example legend placement:
+
+```
+[[1/4] Focus] 24:57
+Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach
+```
+
 ## Requirements
 
 - Python 3.9 or higher
@@ -190,7 +199,7 @@ shellpomodoro --beeps 0
 
 ## License
 
-MIT License - see LICENSE file for details.
+MIT License
 
 ## Contributing
 

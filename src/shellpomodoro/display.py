@@ -27,11 +27,12 @@ class Renderer:
     def update(self, elapsed_s: int) -> str: ...  # return one-line status for top line
     def finalize_phase(self, ended_early: bool) -> None: ...
     def summary(self) -> str: ...  # multi-line string at session end
+    def close(self) -> None: ...  # cleanup method
 
 
 # ---- Timer back/forward ----
 class TimerBackRenderer(Renderer):
-    single_line = False
+    single_line = True
 
     def __init__(self):
         self._label = ""
@@ -41,20 +42,22 @@ class TimerBackRenderer(Renderer):
         self._label = kind
         self._total = total_s
 
-    def update(self, elapsed_s):
-        left = max(0, int(self._total - elapsed_s))
-        m, s = divmod(left, 60)
-        return f"[{self._label}] ⏳ {m:02d}:{s:02d}"
+    def frame(self, payload):
+        # Use normalized MM:SS string
+        return f"⏳ {payload.get('remaining_mmss', '00:00')}"
 
     def finalize_phase(self, ended_early):
         pass
 
     def summary(self):
         return ""
+
+    def close(self):
+        pass
 
 
 class TimerFwdRenderer(Renderer):
-    single_line = False
+    single_line = True
 
     def __init__(self):
         self._label = ""
@@ -64,15 +67,18 @@ class TimerFwdRenderer(Renderer):
         self._label = kind
         self._total = total_s
 
-    def update(self, elapsed_s):
-        m, s = divmod(max(0, int(elapsed_s)), 60)
-        return f"[{self._label}] ⏳ {m:02d}:{s:02d}"
+    def frame(self, payload):
+        # Use normalized MM:SS string
+        return f"⏳ {payload.get('elapsed_mmss', '00:00')}"
 
     def finalize_phase(self, ended_early):
         pass
 
     def summary(self):
         return ""
+
+    def close(self):
+        pass
 
 
 # ---- Progress bar ----
@@ -87,20 +93,23 @@ class BarRenderer(Renderer):
         self._label = kind
         self._total = max(1, total_s)
 
-    def update(self, elapsed_s):
+    def frame(self, payload):
+        progress = float(payload.get("progress", 0.0))
         cols = shutil.get_terminal_size((80, 24)).columns
         bar_w = max(10, min(40, cols - 30))
-        ratio = min(1.0, max(0.0, (elapsed_s / self._total)))
-        filled = int(ratio * bar_w)
+        filled = int(progress * bar_w)
         bar = "█" * filled + "░" * (bar_w - filled)
-        percent = int(ratio * 100)
-        return f"[{self._label}] [{bar}] {percent:>3}%"
+        percent = int(progress * 100)
+        return f"[{bar}] {percent:>3}%"
 
     def finalize_phase(self, ended_early):
         pass
 
     def summary(self):
         return ""
+
+    def close(self):
+        pass
 
 
 # ---- Dots (test-runner style) ----
@@ -135,12 +144,11 @@ class DotsRenderer(Renderer):
         self._slots = [" "] * n_slots
         self._last_toggle = time.time()
 
-    def update(self, elapsed_s):
-        # finalize completed slots
+    def frame(self, payload):
+        elapsed_s = int(payload.get("elapsed_s", 0))
         n = min(len(self._slots), max(0, int(elapsed_s // self._interval)))
         for i in range(n):
             self._slots[i] = "•"
-        # blinking current slot
         if n < len(self._slots):
             now = time.time()
             if now - self._last_toggle >= 0.5:
@@ -148,7 +156,7 @@ class DotsRenderer(Renderer):
                 self._last_toggle = now
             self._slots[n] = "•" if self._blink else "·"
         visual = "".join(self._slots)
-        return f"[{self._label}] {visual}"
+        return visual
 
     def finalize_phase(self, ended_early: bool):
         # mark current slot if ended early
@@ -175,6 +183,9 @@ class DotsRenderer(Renderer):
             lines.append(f"Iter {len(self.history) // 2 + 1:<2} WORK: {work.slots}")
         lines.append("\nLegend: • done, · blinking, E ended early, │ phase separation")
         return "\n".join(lines)
+
+    def close(self):
+        pass
 
 
 def make_renderer(mode: Mode, dot_interval_s: Optional[int]) -> Renderer:

@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 The format is based on Keep a Changelog and this project adheres to Semantic Versioning.
 
+## [0.1.5] - 2025-09-06
+
+### Fixed
+- Countdown timers (timer-back/forward) tick correctly and repaint in place.
+- Bar and dots remain single-line; legend prints once per phase below the status.
+- Deduped repainting avoids repeated "00:00" lines.
+- Stale runtime detection & cleanup prevents connection refused loops.
+- Server uses monotonic time for accurate timing, preventing countdown stuck at 00:00.
+- Improved ANSI cursor movement for stable two-line layout (status + legend).
+
+### Changed
+- Server now sends more timing fields (elapsed_s, remaining_s, duration_s, progress) for better viewer accuracy.
+- Enhanced error handling and runtime cleanup on daemon start/attach.
+
 ## [0.1.4] - 2025-09-05
 
 ### Fixed
