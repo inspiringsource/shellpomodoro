@@ -28,6 +28,11 @@ def _terminal_cols() -> int:
         return 80
 
 
+def _safe_line(s) -> str:
+    """Return a string for UI rendering; coerce None to empty string."""
+    return s if isinstance(s, str) else ""
+
+
 def _fit_to_width(s: str) -> str:
     cols = _terminal_cols()
     # keep 1 col free to avoid wrap on some terminals
@@ -89,16 +94,65 @@ def countdown(
 
     Returns PhaseResult.COMPLETED on natural completion, or
     PhaseResult.ENDED_EARLY if Ctrl+E is detected.
+
+    Args:
+        seconds: Duration of phase in seconds
+        label: Phase label in format "[1/4] Focus"
+        renderer: Optional renderer for display
+        tick_ms: Tick interval in milliseconds
     """
+
+    # Parse iteration info from label for renderer
+    def _parse_label(lbl: str):
+        """Parse '[1/4] Focus' -> (1, 4, 'Focus')"""
+        if lbl.startswith("[") and "] " in lbl:
+            bracket_part, phase_name = lbl.split("] ", 1)
+            bracket_content = bracket_part[1:]  # Remove [
+            if "/" in bracket_content:
+                try:
+                    i_str, n_str = bracket_content.split("/")
+                    return int(i_str), int(n_str), phase_name
+                except ValueError:
+                    pass
+        return 1, 1, lbl
+
+    i, n, phase_name = _parse_label(label)
+
     # Determine if we use single-line mode
     use_single_line = bool(renderer) and getattr(renderer, "single_line", False)
+
+    # Helper to create renderer status with phase info
+    def _render_status(elapsed_s: int) -> str:
+        """Get status line from renderer with phase info"""
+        if not renderer:
+            return ""
+        remaining_s = max(0, seconds - elapsed_s)
+        mm_remaining = remaining_s // 60
+        ss_remaining = remaining_s % 60
+        mm_elapsed = elapsed_s // 60
+        ss_elapsed = elapsed_s % 60
+        progress = elapsed_s / max(1, seconds)
+
+        # Build payload with all needed info
+        payload = {
+            "phase_label": phase_name,
+            "i": i,
+            "n": n,
+            "remaining_s": remaining_s,
+            "elapsed_s": elapsed_s,
+            "duration_s": seconds,
+            "remaining_mmss": f"{mm_remaining:02d}:{ss_remaining:02d}",
+            "elapsed_mmss": f"{mm_elapsed:02d}:{ss_elapsed:02d}",
+            "progress": min(1.0, progress),
+        }
+        return renderer.frame(payload)
 
     # Handle zero seconds case immediately
     if seconds <= 0:
         if renderer:
-            renderer.start_phase(label, 0)
-            status = renderer.update(0)
-            status = f"{status}  (Ctrl+C abort • Ctrl+E end phase) "
+            renderer.start_phase(phase_name, 0)
+            status = _render_status(0)
+            status = _safe_line(status)
             if use_single_line:
                 _print_status(status)
                 _println()
@@ -108,7 +162,7 @@ def countdown(
             renderer.finalize_phase(False)
         else:
             print(
-                f"\r{label}  ⏳ {fmt_mmss(0)}  (Ctrl+C abort • Ctrl+E end phase) ",
+                f"\r{label}  ⏳ {fmt_mmss(0)}",
                 end="",
                 flush=True,
             )
@@ -117,7 +171,7 @@ def countdown(
 
     end = time.time() + seconds
     if renderer:
-        renderer.start_phase(label, seconds)
+        renderer.start_phase(phase_name, seconds)
 
     with phase_key_mode():  # enable per-key reads during this phase
         while True:
@@ -136,19 +190,20 @@ def countdown(
             if left < 0:
                 if renderer:
                     if use_single_line:
-                        status = renderer.update(seconds)
-                        status = f"{status}  (Ctrl+C abort • Ctrl+E end phase) "
+                        status = _render_status(seconds)
+                        status = _safe_line(status)
                         _print_status(status)
                         _println()
                         renderer.finalize_phase(False)
                     else:
-                        line = f"{renderer.update(seconds)}  (Ctrl+C abort • Ctrl+E end phase) "
-                        print(f"\r{line}", end="", flush=True)
+                        status = _render_status(seconds)
+                        status = _safe_line(status)
+                        print(f"\r{status}", end="", flush=True)
                         print()
                         renderer.finalize_phase(False)
                 else:
                     print(
-                        f"\r{label}  ⏳ {fmt_mmss(0)}  (Ctrl+C abort • Ctrl+E end phase) ",
+                        f"\r{label}  ⏳ {fmt_mmss(0)}",
                         end="",
                         flush=True,
                     )
@@ -159,15 +214,16 @@ def countdown(
             if renderer:
                 elapsed = seconds - max(0, left)
                 if use_single_line:
-                    status = renderer.update(elapsed)
-                    status = f"{status}  (Ctrl+C abort • Ctrl+E end phase) "
+                    status = _render_status(elapsed)
+                    status = _safe_line(status)
                     _print_status(status)
                 else:
-                    line = f"{renderer.update(elapsed)}  (Ctrl+C abort • Ctrl+E end phase) "
-                    print(f"\r{line}", end="", flush=True)
+                    status = _render_status(elapsed)
+                    status = _safe_line(status)
+                    print(f"\r{status}", end="", flush=True)
             else:
                 print(
-                    f"\r{label}  ⏳ {fmt_mmss(left)}  (Ctrl+C abort • Ctrl+E end phase) ",
+                    f"\r{label}  ⏳ {fmt_mmss(left)}",
                     end="",
                     flush=True,
                 )

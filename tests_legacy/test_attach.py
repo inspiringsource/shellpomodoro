@@ -43,9 +43,18 @@ def test_attach_no_runtime(capsys):
     with patch("src.shellpomodoro.runtime.read_runtime", return_value=None):
         with patch.object(sys, "exit") as mock_exit:
             cli.main = cli.main  # ensure import
-            cli.parse_args = MagicMock(
-                return_value=MagicMock(subcommand="attach", version=False)
-            )
+            # Create a more complete mock args object
+            mock_args = MagicMock()
+            mock_args.subcommand = "attach"
+            mock_args.version = False
+            mock_args.work = 25
+            setattr(mock_args, "break", 5)
+            mock_args.iterations = 4
+            mock_args.beeps = 2
+            mock_args.display = "timer-back"
+            mock_args.dot_interval = None
+
+            cli.parse_args = MagicMock(return_value=mock_args)
             cli.main()
             captured = capsys.readouterr().out
             assert "No active shellpomodoro session" in captured

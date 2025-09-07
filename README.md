@@ -38,8 +38,8 @@ uv pip install shellpomodoro
 ```bash
 git clone https://github.com/inspiringsource/shellpomodoro.git
 cd shellpomodoro
-python3 -m venv .venv
-# or python -m venv .venv
+#python3 -m venv .venv
+python -m venv .venv
 # macOS/Linux
 source .venv/bin/activate
 # Windows PowerShell
@@ -142,7 +142,7 @@ shellpomodoro --display dots --dot-interval 60   # one dot per minute
 
 Example legend placement:
 
-```
+```bash
 [[1/4] Focus] 24:57
 Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach
 ```

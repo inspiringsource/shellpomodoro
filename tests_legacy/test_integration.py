@@ -252,13 +252,13 @@ except Exception as e:
 
     def test_session_header_formatting_integration(self):
         """Test session header display formatting."""
-        header = cli.session_header(25, 5, 4)
+        header = cli.session_header(25, 5, 4, 2, "timer-back")
 
         # Verify header contains expected information
         self.assertIn("Pomodoro Session", header)
-        self.assertIn("25min work", header)
-        self.assertIn("5min break", header)
-        self.assertIn("4 iteration", header)
+        self.assertIn("work=25", header)
+        self.assertIn("break=5", header)
+        self.assertIn("iterations=4", header)
 
     def test_countdown_display_integration(self):
         """Test countdown display formatting."""

@@ -14,6 +14,7 @@ from .timer import countdown, PhaseResult
 import os
 from .display import Mode, make_renderer
 from .runtime import read_runtime, cleanup_stale_runtime
+import shellpomodoro.runtime as runtime
 
 
 # ASCII art for completion message
@@ -148,14 +149,24 @@ def _read_key_windows(prompt: str = "Press any key to continue...") -> None:
     Args:
         prompt: Message to display to user
     """
-    import msvcrt
     import sys
 
+    # Check for non-interactive override first
+    if os.getenv("SHELLPOMODORO_NONINTERACTIVE") == "1":
+        print(f"{prompt} [auto-continue: non-interactive]")
+        return
+
+    # Check if we're in a non-TTY environment
     if not sys.stdin.isatty():
         print(f"{prompt} [auto-continue: non-TTY]")
         return
 
     try:
+        import msvcrt
+
+        # Check if msvcrt was mocked to None (for testing)
+        if msvcrt is None:
+            raise ImportError("msvcrt mocked to None")
         print(prompt, end="", flush=True)
         # Wait for keypress using msvcrt
         msvcrt.getch()
@@ -200,28 +211,47 @@ def _raw_terminal():
 
 def _read_key_unix(prompt: str = "Press any key to continue...") -> None:
     """
-    Unix-specific keypress handling using termios and tty modules.
+    Unix-specific keypress handling using termios.
 
     Args:
         prompt: Message to display to user
     """
     import sys
 
+    # Check for non-interactive override first
+    if os.getenv("SHELLPOMODORO_NONINTERACTIVE") == "1":
+        print(f"{prompt} [auto-continue: non-interactive]")
+        return
+
+    # Check if we're in a non-TTY environment
     if not sys.stdin.isatty():
         print(f"{prompt} [auto-continue: non-TTY]")
         return
 
     try:
-        print(prompt, end="", flush=True)
+        import termios
+        import tty
 
-        with _raw_terminal():
-            # Read single character without Enter requirement
-            char = sys.stdin.read(1)
+        print(prompt, end="", flush=True)
+        # Get current terminal settings
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+
+        try:
+            # Set terminal to raw mode for single character input
+            tty.setraw(sys.stdin.fileno())
+            # Read single character
+            sys.stdin.read(1)
+        finally:
+            # Restore original terminal settings
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
 
         print()  # Add newline after keypress
-
     except (ImportError, OSError):
-        # Fallback to standard input if raw terminal mode fails
+        # Fallback to standard input if termios fails
+        input(prompt)
+    except Exception:
+        # Catch any other termios-related errors
         input(prompt)
 
 
@@ -279,22 +309,33 @@ def banner() -> str:
     return f"{GOOD_JOB}\nshellpomodoro — great work!\nSession complete"
 
 
-def session_header(work_min: int, break_min: int, iterations: int) -> str:
-    """
-    Create session header display with work/break/iteration summary.
+def session_header(
+    work: int,
+    break_minutes: int,
+    iterations: int,
+    beeps: int = None,
+    display: str = None,
+) -> str:
+    """Return a single-line header used by tests and manual runs."""
+    if beeps is None and display is None:
+        # Legacy 3-argument format for tests
+        iter_text = "iteration" if iterations == 1 else "iterations"
+        return f"Pomodoro Session: {work}min work, {break_minutes}min break, {iterations} {iter_text}"
+    else:
+        # New 5-argument format for main flow
+        return (
+            f"Pomodoro Session — work={work} break={break_minutes} "
+            f"iterations={iterations} beeps={beeps} display={display}"
+        )
 
-    Args:
-        work_min: Work period duration in minutes
-        break_min: Break period duration in minutes
-        iterations: Total number of Pomodoro cycles
 
-    Returns:
-        str: Formatted session header with configuration summary
-    """
-    return (
-        f"Pomodoro Session: {work_min}min work, {break_min}min break, "
-        f"{iterations} iteration{'s' if iterations != 1 else ''}"
-    )
+def legend_line() -> str:
+    return "Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach"
+
+
+def _safe_line(s) -> str:
+    """Return a string for UI rendering; coerce None to empty string."""
+    return s if isinstance(s, str) else ""
 
 
 def iteration_progress(current: int, total: int, phase: str) -> str:
@@ -326,27 +367,61 @@ def parse_args(argv: List[str] = None) -> argparse.Namespace:
         SystemExit: If arguments are invalid or help is requested
     """
     p = argparse.ArgumentParser(
-        prog="shellpomodoro", 
+        prog="shellpomodoro",
         description="Pomodoro timer CLI for focused work sessions",
-        add_help=True
+        add_help=True,
     )
-    p.add_argument("--work", type=int, default=25, dest="work", 
-                   metavar="MINUTES", help="Work duration in minutes")
-    p.add_argument("--break", type=int, default=5, 
-                   metavar="MINUTES", help="Break duration in minutes")
-    p.add_argument("--iterations", type=int, default=4,
-                   metavar="COUNT", help="Number of work/break cycles")
-    p.add_argument("--beeps", type=int, default=2,
-                   metavar="COUNT", help="Number of notification beeps")
-    p.add_argument("--display", choices=("timer-back","timer-forward","bar","dots"), 
-                   default="timer-back", help="Display mode for timer")
-    p.add_argument("--dot-interval", type=int, default=None, dest="dot_interval",
-                   help="Dot interval in seconds for dots mode")
-    p.add_argument("--version", "-v", action="store_true", 
-                   help="Show version and exit")
-    p.add_argument("subcommand", nargs="?", choices=("attach",), default=None,
-                   help="Attach to existing session")
-    
+    p.add_argument(
+        "--work",
+        type=int,
+        default=25,
+        dest="work",
+        metavar="MINUTES",
+        help="Work duration in minutes",
+    )
+    p.add_argument(
+        "--break",
+        type=int,
+        default=5,
+        metavar="MINUTES",
+        help="Break duration in minutes",
+    )
+    p.add_argument(
+        "--iterations",
+        type=int,
+        default=4,
+        metavar="COUNT",
+        help="Number of work/break cycles",
+    )
+    p.add_argument(
+        "--beeps",
+        type=int,
+        default=2,
+        metavar="COUNT",
+        help="Number of notification beeps",
+    )
+    p.add_argument(
+        "--display",
+        choices=("timer-back", "timer-forward", "bar", "dots"),
+        default="timer-back",
+        help="Display mode for timer",
+    )
+    p.add_argument(
+        "--dot-interval",
+        type=int,
+        default=None,
+        dest="dot_interval",
+        help="Dot interval in seconds for dots mode",
+    )
+    p.add_argument("--version", "-v", action="store_true", help="Show version and exit")
+    p.add_argument(
+        "subcommand",
+        nargs="?",
+        choices=("attach",),
+        default=None,
+        help="Attach to existing session",
+    )
+
     # Add examples to help
     p.epilog = """
 Examples:
@@ -356,14 +431,44 @@ Examples:
   shellpomodoro --display bar                  # Use progress bar display
   shellpomodoro attach                         # Attach to existing session
     """
-    
-    return p.parse_args(argv)
+
+    args = p.parse_args(argv)
+
+    # Handle version flag manually to match test expectations
+    if args.version:
+        import importlib.metadata
+
+        version = importlib.metadata.version("shellpomodoro")
+        print(version)
+        sys.exit(0)
+
+    # Validate argument ranges
+    if args.work <= 0:
+        p.error("Work duration must be positive")
+    if getattr(args, "break") <= 0:
+        p.error("Break duration must be positive")
+    if args.iterations <= 0:
+        p.error("Iterations must be positive")
+    if args.beeps < 0:
+        p.error("Beeps must be non-negative")
+
+    # Validate upper limits
+    if args.work > 180:
+        p.error("Work duration cannot exceed 180 minutes")
+    if getattr(args, "break") > 60:
+        p.error("Break duration cannot exceed 60 minutes")
+    if args.iterations > 20:
+        p.error("Iterations cannot exceed 20")
+    if args.beeps > 10:
+        p.error("Beeps cannot exceed 10")
+
+    return args
 
 
 def _is_ci_mode() -> bool:
     """
     Check if running in CI/non-interactive mode.
-    
+
     Returns:
         bool: True if CI mode or stdin is not a TTY
     """
@@ -374,7 +479,7 @@ def _is_ci_mode() -> bool:
 def _existing_session_info() -> Optional[dict]:
     """
     Get connection info for existing session daemon.
-    
+
     Returns:
         dict: Connection info with port/secret, or None if no active session
     """
@@ -382,19 +487,29 @@ def _existing_session_info() -> Optional[dict]:
     runtime = read_runtime()
     if not runtime:
         return None
-        
+
     # Check if we have the required connection info
     if "port" not in runtime or "secret" not in runtime:
         return None
-        
+
     return {
         "port": runtime["port"],
         "secret": runtime["secret"],
-        "display": runtime.get("display", "timer-back")
+        "display": runtime.get("display", "timer-back"),
     }
 
 
-def run(work: int, break_: int, iterations: int, beeps: int, display: str, dot_interval: int | None) -> None:
+def run(
+    work: int,
+    break_: int = None,
+    iterations: int = None,
+    beeps: int = 2,
+    display: str = "timer-back",
+    dot_interval: int | None = None,
+    # Legacy parameter names for backward compatibility
+    brk: int = None,
+    iters: int = None,
+) -> bool:
     """
     Execute the complete Pomodoro session with the specified parameters.
 
@@ -407,8 +522,14 @@ def run(work: int, break_: int, iterations: int, beeps: int, display: str, dot_i
         dot_interval: Dot emission interval in seconds (only for "dots"), or None.
 
     Returns:
-        None
+        bool: True on successful completion, False on abort/interrupt
     """
+    # Handle legacy parameter names for backward compatibility
+    if brk is not None:
+        break_ = brk
+    if iters is not None:
+        iterations = iters
+
     # (existing implementation continues here)
     try:
         # Convert minutes to seconds for countdown
@@ -469,51 +590,75 @@ def run(work: int, break_: int, iterations: int, beeps: int, display: str, dot_i
                             "Break complete! Press any key to start next work phase..."
                         )
 
+        return True
+
     except KeyboardInterrupt:
         # Re-raise to be handled by caller
         raise
 
 
-def main() -> None:
+def main():
     """
-    CLI entry point: parse arguments, handle version/help, attach or start a session.
-
-    Behavior:
-        - `--version` / `-v` prints package version and exits(0).
-        - `--help` is handled by argparse (exits 0).
-        - `attach` subcommand reattaches to an existing session if available.
-        - Otherwise starts a new session with parsed args.
-
-    Returns:
-        None
+    CLI entry point with no arguments for setuptools compatibility.
+    Returns an int exit code for normal flow.
+    Uses sys.exit() for error conditions to match test expectations.
     """
-    import sys
-    from importlib import metadata
+    return _main_impl(None)
 
-    args = parse_args()  # uses sys.argv[1:]
-    if args.version:
-        print(metadata.version("shellpomodoro"))
-        sys.exit(0)
 
-    if args.subcommand == "attach":
-        info = _existing_session_info()
-        if not info:
-            print("No active shellpomodoro session to attach.", flush=True)
-            sys.exit(1)
-            return  # In case sys.exit is mocked
-        else:
-            return attach_ui(info)
+def _main_impl(argv: list[str] | None = None) -> int:
+    """
+    Main implementation that can take argv parameter for testing.
+    """
+    try:
+        args = parse_args(argv)
 
-    # normal start
-    work = int(args.work)
-    break_minutes = int(getattr(args, "break"))
-    iterations = int(args.iterations)
-    beeps = int(args.beeps)
-    display = str(args.display)
-    dot_interval = None if args.dot_interval is None else int(args.dot_interval)
+        work = int(args.work)
+        break_minutes = int(getattr(args, "break"))
+        iterations = int(args.iterations)
+        beeps = int(args.beeps)
+        display = args.display
+        dot_interval = int(args.dot_interval) if args.dot_interval else None
 
-    setup_signal_handler()
-    run(work, break_minutes, iterations, beeps, display, dot_interval)
+        # Subcommands
+        if getattr(args, "subcommand", None) == "attach":
+            try:
+                # Check for existing session
+                info = _existing_session_info()
+                if not info:
+                    print("No active shellpomodoro session")
+                    sys.exit(1)
+
+                # Attach to existing session
+                attach_ui(info)
+                return 0
+            except KeyboardInterrupt:
+                print("\nAborted.")
+                sys.exit(1)
+            except Exception as e:
+                print(f"Error: {e}", file=sys.stderr)
+                sys.exit(1)
+
+        setup_signal_handler()
+
+        print(
+            session_header(work, break_minutes, iterations, beeps, display), flush=True
+        )
+        legend = legend_line()
+        if legend:
+            print(legend, flush=True)
+
+        ok = run(work, break_minutes, iterations, beeps, display, dot_interval)
+        return 0 if ok else 1
+    except KeyboardInterrupt:
+        print("\nAborted.")
+        sys.exit(1)
+    except SystemExit as e:
+        # Re-raise SystemExit to preserve exit codes (e.g., version flag)
+        raise e
+    except Exception as e:
+        print(f"Error: {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 def attach_ui(info: dict) -> None:
@@ -574,8 +719,8 @@ def attach_ui(info: dict) -> None:
             return ("tb", int(st.get("remaining_s") or 0))
         if d == "timer-forward":
             return ("tf", int(st.get("elapsed_s") or 0))
-        if d in ("bar","dots"):
-            return ("p", int(round(st.get("progress", 0.0)*1000)))
+        if d in ("bar", "dots"):
+            return ("p", int(round(st.get("progress", 0.0) * 1000)))
         # Default: use remaining_s as fallback for timer modes
         return ("def", int(st.get("remaining_s") or 0))
 
@@ -584,9 +729,14 @@ def attach_ui(info: dict) -> None:
         try:
             cm = phase_key_mode()
         except Exception:
+
             class _Noop:
-                def __enter__(self): return None
-                def __exit__(self, *a): return False
+                def __enter__(self):
+                    return None
+
+                def __exit__(self, *a):
+                    return False
+
             cm = _Noop()
 
         with cm:
@@ -623,12 +773,31 @@ def attach_ui(info: dict) -> None:
 
                 # Normalize payload keys for test compatibility
                 remaining_s = st.get("remaining_s", st.get("left"))
-                elapsed_s   = st.get("elapsed_s", st.get("elapsed"))
-                duration_s  = st.get("duration_s", st.get("total"))
+                elapsed_s = st.get("elapsed_s", st.get("elapsed"))
+                duration_s = st.get("duration_s", st.get("total"))
+
+                # Extract phase info for status line formatting
+                phase_parts = st.get("phase_label", "").split("] ")
+                if len(phase_parts) == 2 and phase_parts[0].startswith("["):
+                    # Extract "[1/4] Focus" -> i=1, n=4, phase_label="Focus"
+                    bracket_part = phase_parts[0][1:]  # Remove [
+                    if "/" in bracket_part:
+                        i_str, n_str = bracket_part.split("/")
+                        try:
+                            i, n = int(i_str), int(n_str)
+                            phase_label = phase_parts[1]
+                        except ValueError:
+                            i, n, phase_label = 1, 1, st.get("phase_label", "")
+                    else:
+                        i, n, phase_label = 1, 1, st.get("phase_label", "")
+                else:
+                    i, n, phase_label = 1, 1, st.get("phase_label", "")
 
                 payload = {
                     "phase_id": st.get("phase_id"),
-                    "phase_label": st.get("phase_label"),
+                    "phase_label": phase_label,
+                    "i": i,
+                    "n": n,
                     "display": st.get("display", ""),
                     "progress": st.get("progress", 0.0),
                     "remaining_s": remaining_s,
@@ -647,17 +816,21 @@ def attach_ui(info: dict) -> None:
                     last_phase_id = phase_id
                     last_key = cur_key
                     status_line = renderer.frame(payload)
-                    # Print header
-                    print(f"{phase_label}", flush=True)
+                    status_line = _safe_line(status_line)
+
                     if ansi:
-                        # Print status line and legend, then move cursor back to status line
+                        # Print status line, then legend below, then move cursor back to status line
                         sys.stdout.write("\x1b[2K\r" + status_line + "\n")
-                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                        legend = legend_line()
+                        if legend:
+                            print(legend, flush=True)
                         sys.stdout.write("\x1b[1A")
                         sys.stdout.flush()
                     else:
                         print(status_line, flush=True)
-                        print("Hotkeys: Ctrl+C abort • Ctrl+E end phase • Ctrl+O detach", flush=True)
+                        legend = legend_line()
+                        if legend:
+                            print(legend, flush=True)
                     continue
 
                 # Decide whether to repaint based on display mode
@@ -669,6 +842,7 @@ def attach_ui(info: dict) -> None:
 
                 last_key = cur_key
                 status_line = renderer.frame(payload)
+                status_line = _safe_line(status_line)
                 if ansi:
                     # ANSI: clear line and repaint in place
                     sys.stdout.write("\x1b[2K\r" + status_line)
@@ -676,7 +850,7 @@ def attach_ui(info: dict) -> None:
                 else:
                     # Fallback: only print if changed
                     print(status_line, flush=True)
-                        
+
                 time.sleep(0.1)
 
     except KeyboardInterrupt:

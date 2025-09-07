@@ -113,8 +113,12 @@ class TestPlatformDetection(unittest.TestCase):
 class TestWindowsKeypress(unittest.TestCase):
     """Test Windows-specific keypress handling."""
 
+    @patch.dict(
+        "os.environ", {"SHELLPOMODORO_NONINTERACTIVE": ""}
+    )  # Clear non-interactive mode
+    @patch("sys.stdin.isatty", return_value=True)  # Mock TTY environment
     @patch("builtins.print")
-    def test_read_key_windows_success(self, mock_print):
+    def test_read_key_windows_success(self, mock_print, mock_isatty):
         """Test successful Windows keypress handling."""
         # Mock the msvcrt module import and getch function
         mock_msvcrt = MagicMock()
@@ -127,9 +131,13 @@ class TestWindowsKeypress(unittest.TestCase):
         mock_print.assert_any_call()  # Newline after keypress
         mock_msvcrt.getch.assert_called_once()
 
+    @patch.dict(
+        "os.environ", {"SHELLPOMODORO_NONINTERACTIVE": ""}
+    )  # Clear non-interactive mode
+    @patch("sys.stdin.isatty", return_value=True)  # Mock TTY environment
     @patch("builtins.input")
     @patch("builtins.print")
-    def test_read_key_windows_fallback(self, mock_print, mock_input):
+    def test_read_key_windows_fallback(self, mock_print, mock_input, mock_isatty):
         """Test fallback to input() when msvcrt is not available."""
         # Simulate ImportError by patching the import
         with patch.dict("sys.modules", {"msvcrt": None}):
@@ -180,9 +188,13 @@ class TestUnixTerminalManagement(unittest.TestCase):
 class TestUnixKeypress(unittest.TestCase):
     """Test Unix-specific keypress handling."""
 
+    @patch.dict(
+        "os.environ", {"SHELLPOMODORO_NONINTERACTIVE": ""}
+    )  # Clear non-interactive mode
+    @patch("sys.stdin.isatty", return_value=True)  # Mock TTY environment
     @patch("builtins.print")
     @patch("sys.stdin")
-    def test_read_key_unix_success(self, mock_stdin, mock_print):
+    def test_read_key_unix_success(self, mock_stdin, mock_print, mock_isatty):
         """Test successful Unix keypress handling."""
         mock_stdin.fileno.return_value = 0
         mock_stdin.read.return_value = "a"
@@ -199,6 +211,9 @@ class TestUnixKeypress(unittest.TestCase):
         mock_print.assert_any_call()  # Newline after keypress
         mock_stdin.read.assert_called_once_with(1)
 
+    @patch.dict(
+        "os.environ", {"SHELLPOMODORO_NONINTERACTIVE": ""}
+    )  # Clear non-interactive mode
     @patch("builtins.input")
     @patch("builtins.print")
     @patch("sys.stdin.isatty", return_value=True)  # Mock TTY environment
@@ -275,13 +290,13 @@ class TestCountdownEngine(unittest.TestCase):
         # Check that print was called with expected format
         print_calls = [call for call in mock_print.call_args_list if call[0]]
 
-        # Should have calls with the countdown format
+        # Should have calls with the countdown format (without legend concatenation)
         found_countdown_format = False
         for call in print_calls:
             if (
                 len(call[0]) > 0
                 and "Break" in str(call[0][0])
-                and "(Ctrl+C abort • Ctrl+E end phase)" in str(call[0][0])
+                and "⏳" in str(call[0][0])  # Timer symbol should be present
             ):
                 found_countdown_format = True
                 break
@@ -1052,11 +1067,10 @@ class TestMainFunction(unittest.TestCase):
         # Verify function calls
         mock_parse_args.assert_called_once()
         mock_setup_signal.assert_called_once()
-        mock_session_header.assert_called_once_with(25, 5, 4)
+        mock_session_header.assert_called_once_with(25, 5, 4, 2, mock_args.display)
 
         # Verify print calls
-        mock_print.assert_any_call("Test session header")
-        mock_print.assert_any_call()  # Blank line
+        mock_print.assert_any_call("Test session header", flush=True)
 
     @patch("src.shellpomodoro.cli.run")
     @patch("src.shellpomodoro.cli.parse_args")
@@ -1298,7 +1312,7 @@ class TestMainFunction(unittest.TestCase):
                                 # Version flag should cause SystemExit with code 0
                                 with self.assertRaises(SystemExit) as cm:
                                     main()
-                                
+
                                 # Should exit with code 0
                                 self.assertEqual(cm.exception.code, 0)
 
@@ -1436,11 +1450,15 @@ class TestCLIIntegration(unittest.TestCase):
 
         # Verify session header was called with correct arguments
         mock_session_header.assert_called_once_with(
-            mock_args.work, getattr(mock_args, "break"), mock_args.iterations
+            mock_args.work,
+            getattr(mock_args, "break"),
+            mock_args.iterations,
+            mock_args.beeps,
+            mock_args.display,
         )
 
         # Verify session header was printed
-        mock_print.assert_any_call("Test Session Header")
+        mock_print.assert_any_call("Test Session Header", flush=True)
 
         # Verify run was called with correct configuration
         mock_run.assert_called_once_with(45, 12, 5, 3, ANY, ANY)
@@ -1486,9 +1504,11 @@ class TestCLIIntegration(unittest.TestCase):
             len(sig.parameters), 0, "Entry point function should take no arguments"
         )
 
-        # Verify return annotation (should be None for entry points)
+        # Verify return annotation (should be empty for entry points)
         self.assertEqual(
-            sig.return_annotation, None, "Entry point function should return None"
+            sig.return_annotation,
+            inspect._empty,
+            "Entry point function should have no return annotation",
         )
 
     def test_package_metadata_integration(self):
