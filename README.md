@@ -6,14 +6,16 @@
 
 `shellpomodoro` = Shell + Pomodoro timer. Built for my own use; sharing in case it helps others too.
 
-A cross-platform terminal-based Pomodoro timer CLI application that can be installed via pip and run anywhere. Built with Python's standard library only - no external dependencies required.
+A cross-platform terminal-based Pomodoro timer CLI application with multiple display modes, session detach/reattach capabilities, and background session management. Installable via pip and runs anywhere with zero external dependencies.
 
 ## Features
 
 - 🍅 Classic Pomodoro technique with customizable work and break durations
+- 📊 **Multiple display modes**: countdown timer, count-up timer, progress bar, or test-runner style dots
 - ⏱️ Real-time countdown display with MM:SS format
 - 🔔 Terminal bell notifications at phase transitions
 - ⌨️ Keypress-controlled phase transitions (no need to wait)
+- 🔌 **Detach/reattach sessions**: Run sessions in background with `Ctrl+O`, reattach from any terminal
 - 🎨 ASCII art congratulations upon session completion
 - 🖥️ Cross-platform support (Windows, macOS, Linux)
 - 📦 Zero external dependencies (Python stdlib only)
@@ -72,8 +74,13 @@ shellpomodoro --iterations 6
 # Custom notification beeps
 shellpomodoro --beeps 3
 
+# Different display modes
+shellpomodoro --display bar          # Progress bar
+shellpomodoro --display dots         # Test-runner style dots
+shellpomodoro --display timer-forward # Count up from 00:00
+
 # Combine all options
-shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
+shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1 --display bar
 ```
 
 ### Command Line Options
@@ -82,6 +89,8 @@ shellpomodoro --work 45 --break 15 --iterations 3 --beeps 1
 - `--break N`: Set break period duration in minutes (default: 5)
 - `--iterations N`: Set number of Pomodoro cycles (default: 4)
 - `--beeps N`: Set number of notification beeps (default: 2)
+- `--display MODE`: Set display mode: `timer-back` (default), `timer-forward`, `bar`, or `dots`
+- `--dot-interval N`: Dot emission interval in seconds (only for dots mode)
 - `--version`, `-v`: Show version and exit
 - `--help`: Show help message and exit
 
@@ -131,7 +140,8 @@ shellpomodoro --display dots --dot-interval 60   # one dot per minute
 - **Check Version**: Run `shellpomodoro --version` or `shellpomodoro -v`
 - **Abort Session**: Press `Ctrl+C` at any time to abort the current session
 - **Phase Transitions**: Press `Ctrl+E` to end the current phase early (WORK → BREAK, BREAK → next WORK)
-- **Real-time Display**: See countdown timer, current phase, and instructions
+- **Detach Session**: Press `Ctrl+O` to detach the UI while keeping the session running in background
+- **Real-time Display**: See countdown timer, current phase, and hotkey instructions
 
 ## Detach / Reattach
 
@@ -191,6 +201,28 @@ shellpomodoro --work 15 --break 5 --iterations 1
 shellpomodoro --work 50 --break 10 --iterations 3
 ```
 
+### Different display modes
+
+```bash
+# Progress bar mode
+shellpomodoro --display bar
+
+# Dots mode with custom interval
+shellpomodoro --display dots --dot-interval 30
+
+# Count-up timer
+shellpomodoro --display timer-forward
+```
+
+### Background session management
+
+```bash
+# Start a session, detach with Ctrl+O, then reattach later
+shellpomodoro --work 25 --break 5
+# ... press Ctrl+O to detach ...
+shellpomodoro attach  # reattach from same or different terminal
+```
+
 ### Silent mode (no beeps)
 
 ```bash
@@ -209,6 +241,15 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 
 If you encounter any issues or have questions, please open an issue on the GitHub repository.
 
+## What's New in v0.1.5
+
+- **🎯 Multiple Display Modes**: Choose from countdown timer (default), count-up timer, progress bar, or test-runner style dots
+- **🔌 Session Detach/Reattach**: Start a session, detach with `Ctrl+O`, and reattach from any terminal with `shellpomodoro attach`
+- **⌨️ Enhanced Hotkeys**: `Ctrl+C` to abort, `Ctrl+E` to end phase early, `Ctrl+O` to detach
+- **📊 Visual Progress Tracking**: Progress bars show completion percentage and remaining time
+- **🔄 Background Session Management**: Sessions continue running even when detached
+- **🎨 Improved UI**: Better formatted status lines with phase indicators `[[1/4] Focus] 24:57`
+
 ## Development History
 
-This project was initiated using Kiro, which helped establish the initial structure and core functionality of the Pomodoro timer (the original `design.md`, `requirements.md`, and `tasks.md` are included in the repo). Later, the codebase was optimized and refined using Grok code to improve performance, code quality, and maintainability.
+This project was initiated using Kiro, which helped establish the initial structure and core functionality of the Pomodoro timer (the original `design.md`, `requirements.md`, and `tasks.md` are included in the repo). Later, the codebase was optimized and refined using Grok code / Claude Sonnet 4 to improve performance, code quality, and maintainability.
