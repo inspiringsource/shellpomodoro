@@ -14,7 +14,7 @@ A cross-platform terminal-based Pomodoro timer CLI application with multiple dis
 - 📊 **Multiple display modes**: countdown timer, count-up timer, progress bar, or test-runner style dots
 - ⏱️ Real-time countdown display with MM:SS format
 - 🔔 Terminal bell notifications at phase transitions
-- ⌨️ Keypress-controlled phase transitions (no need to wait)
+- ⌨️ Keypress-controlled phase transitions (no need to wait) \
 ~~- 🔌 **Detach/reattach sessions**: Run sessions in background with `Ctrl+O`, reattach from any terminal~~
 - 🎨 ASCII art congratulations upon session completion
 - 🖥️ Cross-platform support (Windows, macOS, Linux)
