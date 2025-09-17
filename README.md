@@ -11,7 +11,7 @@ A cross-platform terminal-based Pomodoro timer CLI application with multiple dis
 ## Features
 
 - 🍅 Classic Pomodoro technique with customizable work and break durations
-- 📊 **Multiple display modes**: countdown timer, count-up timer, progress bar, or test-runner style dots
+- 📊 **Multiple modes**: countdown timer, count-up timer, progress bar, or test-runner style dots
 - ⏱️ Real-time countdown display with MM:SS format
 - 🔔 Terminal bell notifications at phase transitions
 - ⌨️ Keypress-controlled phase transitions (no need to wait) \
